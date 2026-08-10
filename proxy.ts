@@ -46,7 +46,7 @@ export default async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    if (user && (pathname === '/login' || pathname === '/register' || pathname === '/')) {
+    if (user && (pathname === '/login' || pathname === '/register')) {
       const url = request.nextUrl.clone();
       url.pathname = '/chat';
       return NextResponse.redirect(url);
