@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
+export default async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -39,6 +39,7 @@ export async function middleware(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
 
+    // Protected route check
     if (!user && pathname.startsWith('/chat')) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
@@ -51,7 +52,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
   } catch (e) {
-    console.error('Middleware error:', e);
+    console.error('Proxy error:', e);
   }
 
   return response;
