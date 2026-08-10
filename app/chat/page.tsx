@@ -46,8 +46,10 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Initial load: User session & Fetch existing messages
+  // Initial load: User session & Fetch existing messages & Setup Realtime
   useEffect(() => {
+    let channel: any = null;
+
     const initChat = async () => {
       const {
         data: { user: currentUser },
@@ -72,25 +74,30 @@ export default function ChatPage() {
 
       setLoading(false);
 
-      // Setup Realtime subscription
-      const channel = supabase
-        .channel('public:messages')
+      // Setup Realtime channel
+      channel = supabase
+        .channel('room-general')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'messages' },
           (payload) => {
             const newMessage = payload.new as Message;
-            setMessages((prev) => [...prev, newMessage]);
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMessage.id)) return prev;
+              return [...prev, newMessage];
+            });
           }
         )
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
     };
 
     initChat();
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [router, supabase]);
 
   const handleLogout = async () => {
