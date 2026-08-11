@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Message, ChatRoom } from '@/lib/types';
+import { Message, ChatRoom, RoomMember } from '@/lib/types';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import InstallPWA from '../components/InstallPWA';
 import {
@@ -24,6 +24,10 @@ import {
   Lock,
   Menu,
   ChevronRight,
+  Users,
+  UserPlus,
+  Trash2,
+  ShieldCheck,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
@@ -51,6 +55,12 @@ export default function ChatPage() {
   // Create new room modal
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
+
+  // Member Management modal
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [roomMembers, setRoomMembers] = useState<RoomMember[]>([]);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [memberActionLoading, setMemberActionLoading] = useState(false);
 
   // Password modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -104,7 +114,6 @@ export default function ChatPage() {
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        // Filter strictly for room_id or default general
         const filtered = (data as Message[]).filter(
           (m) => (m.room_id || 'general') === activeRoom.id
         );
@@ -148,6 +157,91 @@ export default function ChatPage() {
       }
     };
   }, [activeRoom, router, supabase]);
+
+  // Fetch Room Members when members modal is opened
+  const fetchRoomMembers = async () => {
+    try {
+      const { data } = await supabase
+        .from('room_members')
+        .select('*')
+        .eq('room_id', activeRoom.id);
+
+      if (data && data.length > 0) {
+        setRoomMembers(data as RoomMember[]);
+      } else {
+        // Fallback default admin is current user
+        setRoomMembers([
+          {
+            room_id: activeRoom.id,
+            user_email: user?.email || 'fica.holding@gmail.com',
+            role: 'admin',
+          },
+        ]);
+      }
+    } catch {
+      setRoomMembers([
+        {
+          room_id: activeRoom.id,
+          user_email: user?.email || 'fica.holding@gmail.com',
+          role: 'admin',
+        },
+      ]);
+    }
+  };
+
+  const handleOpenMembersModal = () => {
+    setShowMembersModal(true);
+    fetchRoomMembers();
+  };
+
+  const handleAddMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemberEmail.trim()) return;
+
+    setMemberActionLoading(true);
+
+    try {
+      const { error } = await supabase.from('room_members').insert({
+        room_id: activeRoom.id,
+        user_email: newMemberEmail.trim().toLowerCase(),
+        role: 'member',
+      });
+
+      if (error && error.code !== '23505') {
+        alert('Lỗi thêm thành viên: ' + error.message);
+      } else {
+        setRoomMembers((prev) => [
+          ...prev,
+          { room_id: activeRoom.id, user_email: newMemberEmail.trim().toLowerCase(), role: 'member' },
+        ]);
+        setNewMemberEmail('');
+      }
+    } catch {
+      setRoomMembers((prev) => [
+        ...prev,
+        { room_id: activeRoom.id, user_email: newMemberEmail.trim().toLowerCase(), role: 'member' },
+      ]);
+      setNewMemberEmail('');
+    } finally {
+      setMemberActionLoading(false);
+    }
+  };
+
+  const handleRemoveMember = async (emailToRemove: string) => {
+    if (!confirm(`Bạn có chắc muốn mời ${emailToRemove} ra khỏi phòng?`)) return;
+
+    try {
+      await supabase
+        .from('room_members')
+        .delete()
+        .eq('room_id', activeRoom.id)
+        .eq('user_email', emailToRemove);
+
+      setRoomMembers((prev) => prev.filter((m) => m.user_email !== emailToRemove));
+    } catch {
+      setRoomMembers((prev) => prev.filter((m) => m.user_email !== emailToRemove));
+    }
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -416,6 +510,16 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Admin Member Management Button */}
+            <button
+              onClick={handleOpenMembersModal}
+              className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
+              title="Quản lý thành viên & Admin"
+            >
+              <Users className="w-4 h-4 text-indigo-400" />
+              <span className="hidden sm:inline">Thành viên</span>
+            </button>
+
             {/* Change Password Button */}
             <button
               onClick={() => {
@@ -638,6 +742,89 @@ export default function ChatPage() {
           </form>
         </footer>
       </div>
+
+      {/* Member Management Modal */}
+      {showMembersModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+            <button
+              onClick={() => setShowMembersModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-lg">Quản lý {activeRoom.name}</h3>
+                <p className="text-xs text-slate-400">Thêm / Xóa thành viên được phép vào phòng</p>
+              </div>
+            </div>
+
+            {/* Add Member Input Form */}
+            <form onSubmit={handleAddMember} className="flex gap-2 mb-5">
+              <input
+                type="email"
+                required
+                value={newMemberEmail}
+                onChange={(e) => setNewMemberEmail(e.target.value)}
+                placeholder="Nhập email thành viên..."
+                className="flex-1 px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="submit"
+                disabled={memberActionLoading}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Thêm</span>
+              </button>
+            </form>
+
+            {/* Members List */}
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                Danh sách thành viên ({roomMembers.length})
+              </p>
+
+              {roomMembers.map((member, index) => {
+                const isAdmin = member.role === 'admin' || member.user_email === user?.email;
+
+                return (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-2.5 bg-slate-800/60 rounded-xl border border-slate-700/50 text-xs"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <User className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span className="text-slate-200 truncate">{member.user_email}</span>
+                      {isAdmin && (
+                        <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">
+                          <ShieldCheck className="w-3 h-3" />
+                          Admin
+                        </span>
+                      )}
+                    </div>
+
+                    {!isAdmin && (
+                      <button
+                        onClick={() => handleRemoveMember(member.user_email)}
+                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700/60 rounded-lg transition"
+                        title="Mời ra khỏi phòng"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create New Room Modal */}
       {showCreateRoomModal && (

@@ -21,7 +21,27 @@ ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_url TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_type TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS room_id TEXT DEFAULT 'general';
 
--- 2. Bat Row Level Security (RLS) cho bang messages
+-- 2. Tao bang room_members de quan ly thanh vien & phan quyen admin
+CREATE TABLE IF NOT EXISTS public.room_members (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  room_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  role TEXT DEFAULT 'member', -- 'admin' hoac 'member'
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  CONSTRAINT unique_room_user UNIQUE(room_id, user_email)
+);
+
+-- Bat Row Level Security (RLS) cho bang room_members
+ALTER TABLE public.room_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Cho phap user xem danh sach thanh vien phong" ON public.room_members;
+CREATE POLICY "Cho phap user xem danh sach thanh vien phong"
+  ON public.room_members
+  FOR ALL
+  TO authenticated
+  USING (true);
+
+-- 3. Bat Row Level Security (RLS) cho bang messages
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 -- Dynamic drop policy neu da ton tai de tranh loi khi rerun
@@ -42,7 +62,7 @@ CREATE POLICY "Cho phap user da dang nhap gui tin nhan"
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
--- 3. Kich hoat Supabase Realtime cho bang messages
+-- 4. Kich hoat Supabase Realtime cho bang messages
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -53,7 +73,7 @@ BEGIN
   END IF;
 END $$;
 
--- 4. Tao Storage Bucket "chat-attachments" de luu hinh anh & file
+-- 5. Tao Storage Bucket "chat-attachments" de luu hinh anh & file
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('chat-attachments', 'chat-attachments', true)
 ON CONFLICT (id) DO NOTHING;
