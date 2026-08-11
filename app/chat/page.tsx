@@ -26,12 +26,10 @@ import {
   Users,
   UserPlus,
   Trash2,
-  ShieldCheck,
-  UserCheck,
-  AlertTriangle,
   Crown,
   Award,
   UserCheck2,
+  AlertTriangle,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
@@ -124,15 +122,22 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Load custom rooms from localStorage
+  // Load custom rooms from localStorage & Purge legacy cache containing General Room
   useEffect(() => {
     try {
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v2');
+      localStorage.removeItem('fica_chat_rooms');
+      localStorage.removeItem('fica_chat_rooms_v2');
+
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v3');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
-        if (parsed.length > 0) {
-          setRooms(parsed);
+        // Filter out any legacy general room
+        const cleanRooms = parsed.filter((r) => r.id !== 'general');
+        if (cleanRooms.length > 0) {
+          setRooms(cleanRooms);
         }
+      } else {
+        localStorage.setItem('fica_chat_rooms_v3', JSON.stringify(INITIAL_ROOMS));
       }
     } catch (e) {
       console.log('Error reading saved data:', e);
@@ -141,9 +146,10 @@ export default function ChatPage() {
 
   // Save custom rooms state to localStorage
   const updateRoomsState = (newRooms: ChatRoom[]) => {
-    setRooms(newRooms);
+    const cleanRooms = newRooms.filter((r) => r.id !== 'general');
+    setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v2', JSON.stringify(newRooms));
+      localStorage.setItem('fica_chat_rooms_v3', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -167,7 +173,7 @@ export default function ChatPage() {
   const isViceAdmin = (room: ChatRoom | null, email?: string | null): boolean => {
     if (!room || !email) return false;
     const userEmail = email.toLowerCase().trim();
-    if (isRoomOwner(room, userEmail)) return false; // Trưởng nhóm đã có quyền cao nhất
+    if (isRoomOwner(room, userEmail)) return false;
     const viceList = room.vice_admins || [];
     return viceList.some((v) => v.toLowerCase().trim() === userEmail);
   };
@@ -184,7 +190,7 @@ export default function ChatPage() {
 
   // Strict check if a user can see and enter a specific room
   const canUserAccessRoom = (room: ChatRoom, userEmail?: string | null): boolean => {
-    if (!userEmail) return false;
+    if (!userEmail || room.id === 'general') return false;
     const email = userEmail.toLowerCase().trim();
 
     // 1. Super Admin fica.holding@gmail.com has global audit access to ALL rooms
@@ -202,7 +208,7 @@ export default function ChatPage() {
     return false;
   };
 
-  // Filter rooms visible on sidebar for current user
+  // Rooms visible to current user
   const visibleRooms = rooms.filter((r) => canUserAccessRoom(r, user?.email));
 
   // Set default active room based on user access
@@ -1269,7 +1275,7 @@ export default function ChatPage() {
 
             <div className="flex items-center gap-3 mb-5">
               <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-                <UserCheck className="w-6 h-6" />
+                <UserCheck2 className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="font-bold text-white text-lg">Đổi Tên hiển thị</h3>
@@ -1495,7 +1501,7 @@ export default function ChatPage() {
                   required
                   value={newRoomName}
                   onChange={(e) => setNewRoomName(e.target.value)}
-                  placeholder="Ví dụ: Team Dự Án A, Nhóm Thi Thiết Kế..."
+                  placeholder="Ví dụ: Team Dự Án A, Nhóm Thiết Kế..."
                   className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                 />
               </div>
