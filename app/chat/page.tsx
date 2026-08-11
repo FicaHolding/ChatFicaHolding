@@ -30,15 +30,17 @@ import {
   ShieldCheck,
   UserCheck,
   AlertTriangle,
+  Crown,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
+const MAIN_SUPER_ADMIN = 'fica.holding@gmail.com';
 
 const INITIAL_DEFAULT_ROOMS: ChatRoom[] = [
-  { id: 'general', name: 'Phòng Chat Chung', isPrivate: false },
-  { id: 'room_ke_toan', name: 'Phòng Kế Toán', isPrivate: true },
-  { id: 'room_kinh_doanh', name: 'Phòng Kinh Doanh', isPrivate: true },
-  { id: 'room_ky_thuat', name: 'Phòng Kỹ Thuật', isPrivate: true },
+  { id: 'general', name: 'Phòng Chat Chung', isPrivate: false, allowed_emails: [] },
+  { id: 'room_ke_toan', name: 'Phòng Kế Toán', isPrivate: true, allowed_emails: ['fica.holding@gmail.com'] },
+  { id: 'room_kinh_doanh', name: 'Phòng Kinh Doanh', isPrivate: true, allowed_emails: ['fica.holding@gmail.com'] },
+  { id: 'room_ky_thuat', name: 'Phòng Kỹ Thuật', isPrivate: true, allowed_emails: ['fica.holding@gmail.com'] },
 ];
 
 export default function ChatPage() {
@@ -49,6 +51,10 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+
+  // System Co-Admin (Admin thứ 2)
+  const [secondAdminEmail, setSecondAdminEmail] = useState<string>('');
+  const [newCoAdminInput, setNewCoAdminInput] = useState<string>('');
 
   // Profile modal state
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -101,22 +107,38 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Load custom rooms from localStorage
+  // Load custom rooms & Second Admin from localStorage
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('fica_chat_rooms');
-      if (saved) {
-        const parsed = JSON.parse(saved) as ChatRoom[];
+      const savedAdmin = localStorage.getItem('fica_second_admin');
+      if (savedAdmin) {
+        setSecondAdminEmail(savedAdmin.toLowerCase().trim());
+      }
+
+      const savedRooms = localStorage.getItem('fica_chat_rooms');
+      if (savedRooms) {
+        const parsed = JSON.parse(savedRooms) as ChatRoom[];
         if (parsed.length > 0) {
           setRooms(parsed);
         }
       }
     } catch (e) {
-      console.log('Error reading saved rooms:', e);
+      console.log('Error reading saved data:', e);
     }
   }, []);
 
-  // Save custom rooms to localStorage
+  // Check if an email is System Admin (Super Admin or Co-Admin)
+  const isSystemAdmin = (emailToCheck?: string | null): boolean => {
+    if (!emailToCheck) return false;
+    const e = emailToCheck.toLowerCase().trim();
+    if (e === MAIN_SUPER_ADMIN.toLowerCase()) return true;
+    if (secondAdminEmail && e === secondAdminEmail.toLowerCase()) return true;
+    return false;
+  };
+
+  const isCurrentAdmin = isSystemAdmin(user?.email);
+
+  // Save custom rooms state
   const updateRoomsState = (newRooms: ChatRoom[]) => {
     setRooms(newRooms);
     try {
@@ -126,13 +148,65 @@ export default function ChatPage() {
     }
   };
 
+  // Save second admin
+  const handleAssignSecondAdmin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetEmail = newCoAdminInput.trim().toLowerCase();
+    setSecondAdminEmail(targetEmail);
+    try {
+      localStorage.setItem('fica_second_admin', targetEmail);
+    } catch {
+      // Ignore
+    }
+    setNewCoAdminInput('');
+    alert(`Đã phân quyền Admin hệ thống cho: ${targetEmail}`);
+  };
+
+  const handleRemoveSecondAdmin = () => {
+    setSecondAdminEmail('');
+    try {
+      localStorage.removeItem('fica_second_admin');
+    } catch {
+      // Ignore
+    }
+  };
+
+  // Strict check if a user can see and enter a specific room
+  const canUserAccessRoom = (room: ChatRoom, userEmail?: string | null): boolean => {
+    if (!userEmail) return false;
+    const email = userEmail.toLowerCase().trim();
+
+    // 1. Super Admin & Co-Admin can access ALL rooms
+    if (isSystemAdmin(email)) return true;
+
+    // 2. General Public Room is accessible by everyone
+    if (room.id === 'general') return true;
+
+    // 3. Check allowed_emails list on room
+    if (room.allowed_emails && room.allowed_emails.some((e) => e.toLowerCase() === email)) {
+      return true;
+    }
+
+    // 4. Check roomMembers array
+    if (roomMembers.some((m) => m.room_id === room.id && m.user_email.toLowerCase() === email)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  // Rooms visible to current user
+  const visibleRooms = rooms.filter((r) => canUserAccessRoom(r, user?.email));
+
   // Helper to resolve a message's room_id with local fallback persistence
   const getMessageRoomId = (msg: Message): string => {
     if (msg.room_id) return msg.room_id;
     try {
       const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
       if (localRoom) return localRoom;
-      const matchByContent = localStorage.getItem(`fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`);
+      const matchByContent = localStorage.getItem(
+        `fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`
+      );
       if (matchByContent) return matchByContent;
     } catch {
       // Fallback
@@ -176,6 +250,11 @@ export default function ChatPage() {
         'Thành viên Fica';
       setDisplayName(name);
       setEditNameInput(name);
+
+      // Verify active room access, fallback to general if not allowed
+      if (!canUserAccessRoom(activeRoom, currentUser.email)) {
+        setActiveRoom(INITIAL_DEFAULT_ROOMS[0]);
+      }
 
       // Fetch messages for active room with robust room_id checking
       const { data, error } = await supabase
@@ -276,20 +355,21 @@ export default function ChatPage() {
       if (!error && data && data.length > 0) {
         setRoomMembers(data as RoomMember[]);
       } else {
-        setRoomMembers([
-          {
-            room_id: activeRoom.id,
-            user_email: user?.email || 'fica.holding@gmail.com',
-            role: 'admin',
-          },
-        ]);
+        const allowed = activeRoom.allowed_emails || [MAIN_SUPER_ADMIN];
+        const defaultList: RoomMember[] = allowed.map((e) => ({
+          room_id: activeRoom.id,
+          user_email: e,
+          role: isSystemAdmin(e) ? 'super_admin' : 'member',
+        }));
+
+        setRoomMembers(defaultList);
       }
     } catch {
       setRoomMembers([
         {
           room_id: activeRoom.id,
-          user_email: user?.email || 'fica.holding@gmail.com',
-          role: 'admin',
+          user_email: MAIN_SUPER_ADMIN,
+          role: 'super_admin',
         },
       ]);
     }
@@ -307,9 +387,22 @@ export default function ChatPage() {
     const emailToAdd = newMemberEmail.trim().toLowerCase();
     setMemberActionLoading(true);
 
+    // Update room allowed_emails array
+    const updatedRooms = rooms.map((r) => {
+      if (r.id === activeRoom.id) {
+        const existingAllowed = r.allowed_emails || [];
+        if (!existingAllowed.includes(emailToAdd)) {
+          return { ...r, allowed_emails: [...existingAllowed, emailToAdd] };
+        }
+      }
+      return r;
+    });
+
+    updateRoomsState(updatedRooms);
+
     // Optimistically update UI local state instantly
     setRoomMembers((prev) => {
-      if (prev.some((m) => m.user_email === emailToAdd)) return prev;
+      if (prev.some((m) => m.user_email.toLowerCase() === emailToAdd)) return prev;
       return [...prev, { room_id: activeRoom.id, user_email: emailToAdd, role: 'member' }];
     });
     setNewMemberEmail('');
@@ -330,7 +423,19 @@ export default function ChatPage() {
   const handleRemoveMember = async (emailToRemove: string) => {
     if (!confirm(`Bạn có chắc muốn mời ${emailToRemove} ra khỏi phòng?`)) return;
 
-    setRoomMembers((prev) => prev.filter((m) => m.user_email !== emailToRemove));
+    // Remove from room allowed_emails array
+    const updatedRooms = rooms.map((r) => {
+      if (r.id === activeRoom.id) {
+        return {
+          ...r,
+          allowed_emails: (r.allowed_emails || []).filter((e) => e.toLowerCase() !== emailToRemove.toLowerCase()),
+        };
+      }
+      return r;
+    });
+
+    updateRoomsState(updatedRooms);
+    setRoomMembers((prev) => prev.filter((m) => m.user_email.toLowerCase() !== emailToRemove.toLowerCase()));
 
     try {
       await supabase
@@ -345,13 +450,14 @@ export default function ChatPage() {
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRoomName.trim()) return;
+    if (!newRoomName.trim() || !user) return;
 
     const roomId = `room_${Date.now()}`;
     const newRoom: ChatRoom = {
       id: roomId,
       name: newRoomName.trim(),
       isPrivate: true,
+      allowed_emails: [user.email || MAIN_SUPER_ADMIN, MAIN_SUPER_ADMIN],
     };
 
     const updated = [...rooms, newRoom];
@@ -372,18 +478,14 @@ export default function ChatPage() {
     setDeleteRoomLoading(true);
 
     try {
-      // Delete messages in this room from Supabase
       await supabase.from('messages').delete().eq('room_id', activeRoom.id);
-      // Delete room members in this room from Supabase
       await supabase.from('room_members').delete().eq('room_id', activeRoom.id);
     } catch (e) {
       console.log('Error deleting room records on DB:', e);
     } finally {
-      // Remove room from rooms array
       const filteredRooms = rooms.filter((r) => r.id !== activeRoom.id);
       updateRoomsState(filteredRooms);
 
-      // Switch back to General Room
       const generalRoom = filteredRooms.find((r) => r.id === 'general') || INITIAL_DEFAULT_ROOMS[0];
       setActiveRoom(generalRoom);
 
@@ -477,7 +579,6 @@ export default function ChatPage() {
     const messageContent = inputText.trim();
 
     try {
-      // Handle file upload if any
       if (selectedFile) {
         const fileExt = selectedFile.name.split('.').pop();
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
@@ -489,7 +590,7 @@ export default function ChatPage() {
 
         if (uploadError) {
           console.error('Lỗi upload file:', uploadError);
-          alert('Upload file thất bại! Hãy chắc chắn bucket "chat-attachments" đã được tạo.');
+          alert('Upload file thất bại!');
           setSending(false);
           return;
         }
@@ -501,7 +602,6 @@ export default function ChatPage() {
         uploadedFileUrl = publicUrlData.publicUrl;
       }
 
-      // Optimistically add message to UI bound strictly to currentRoomId
       const tempId = `temp_${Date.now()}`;
       const newMsgObj: Message = {
         id: tempId,
@@ -515,14 +615,16 @@ export default function ChatPage() {
         created_at: new Date().toISOString(),
       };
 
-      // Save room binding locally to guarantee message never leaks to General Room
       try {
         localStorage.setItem(`fica_msg_room_${tempId}`, currentRoomId);
         if (messageContent) {
-          localStorage.setItem(`fica_msg_content_${encodeURIComponent(messageContent.substring(0, 30))}`, currentRoomId);
+          localStorage.setItem(
+            `fica_msg_content_${encodeURIComponent(messageContent.substring(0, 30))}`,
+            currentRoomId
+          );
         }
       } catch {
-        // Ignore local storage errors
+        // Ignore
       }
 
       setMessages((prev) => {
@@ -538,7 +640,6 @@ export default function ChatPage() {
       setInputText('');
       handleClearFile();
 
-      // Insert message into Postgres DB with currentRoomId
       let { data: insertedData, error: insertError } = await supabase
         .from('messages')
         .insert({
@@ -552,7 +653,6 @@ export default function ChatPage() {
         })
         .select();
 
-      // If room_id or user_name column is missing on DB schema cache, retry with core schema
       if (
         insertError &&
         (insertError.message.includes('room_id') ||
@@ -574,7 +674,6 @@ export default function ChatPage() {
         insertError = retryError;
       }
 
-      // If DB insert returned created message ID, replace temporary ID and bind room in localStorage
       if (insertedData && insertedData[0]?.id) {
         const realId = insertedData[0].id;
         try {
@@ -612,8 +711,13 @@ export default function ChatPage() {
               <MessageSquare className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-sm text-white">Fica Holding Chat</h2>
-              <p className="text-[10px] text-slate-400">Danh sách phòng chat</p>
+              <h2 className="font-bold text-sm text-white flex items-center gap-1">
+                <span>Fica Holding Chat</span>
+                {isCurrentAdmin && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+              </h2>
+              <p className="text-[10px] text-slate-400">
+                {isCurrentAdmin ? 'Admin Hệ Thống' : 'Thành viên'}
+              </p>
             </div>
           </div>
           <button
@@ -624,23 +728,25 @@ export default function ChatPage() {
           </button>
         </div>
 
-        {/* Create Room Button */}
-        <div className="p-3">
-          <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full py-2.5 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Tạo phòng chat mới</span>
-          </button>
-        </div>
+        {/* Create Room Button - ONLY Visible to System Admins */}
+        {isCurrentAdmin && (
+          <div className="p-3">
+            <button
+              onClick={() => setShowCreateRoomModal(true)}
+              className="w-full py-2.5 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tạo phòng chat mới</span>
+            </button>
+          </div>
+        )}
 
-        {/* Rooms Scroll List */}
+        {/* Rooms Scroll List strictly filtered for allowed rooms only */}
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
           <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            Phòng trò chuyện ({rooms.length})
+            Phòng trò chuyện ({visibleRooms.length})
           </p>
-          {rooms.map((room) => {
+          {visibleRooms.map((room) => {
             const isActive = room.id === activeRoom.id;
 
             return (
@@ -681,7 +787,10 @@ export default function ChatPage() {
               <User className="w-4 h-4" />
             </div>
             <div className="truncate min-w-0">
-              <p className="text-xs font-semibold text-white truncate">{displayName}</p>
+              <p className="text-xs font-semibold text-white truncate flex items-center gap-1">
+                <span>{displayName}</span>
+                {isCurrentAdmin && <Crown className="w-3 h-3 text-amber-400 shrink-0" />}
+              </p>
               <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
             </div>
           </button>
@@ -725,8 +834,8 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Admin Delete Room Button (Visible for non-general rooms) */}
-            {activeRoom.id !== 'general' && (
+            {/* Admin Delete Room Button (Visible for non-general rooms and ONLY for Admin) */}
+            {activeRoom.id !== 'general' && isCurrentAdmin && (
               <button
                 onClick={() => setShowDeleteRoomModal(true)}
                 className="p-2 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 border border-transparent rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
@@ -737,11 +846,11 @@ export default function ChatPage() {
               </button>
             )}
 
-            {/* Admin Member Management Button */}
+            {/* Member Management Button */}
             <button
               onClick={handleOpenMembersModal}
               className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
-              title="Quản lý thành viên & Admin"
+              title="Quản lý thành viên & Phân quyền Admin"
             >
               <Users className="w-4 h-4 text-indigo-400" />
               <span className="hidden sm:inline">Thành viên</span>
@@ -1108,7 +1217,7 @@ export default function ChatPage() {
       {/* Member Management Modal */}
       {showMembersModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setShowMembersModal(false)}
               className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
@@ -1121,39 +1230,84 @@ export default function ChatPage() {
                 <Users className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-lg">Quản lý {activeRoom.name}</h3>
-                <p className="text-xs text-slate-400">Thêm / Xóa thành viên được phép vào phòng</p>
+                <h3 className="font-bold text-white text-lg">Quản lý thành viên</h3>
+                <p className="text-xs text-slate-400">{activeRoom.name}</p>
               </div>
             </div>
 
-            {/* Add Member Input Form */}
-            <form onSubmit={handleAddMember} className="flex gap-2 mb-5">
-              <input
-                type="email"
-                required
-                value={newMemberEmail}
-                onChange={(e) => setNewMemberEmail(e.target.value)}
-                placeholder="Nhập email thành viên..."
-                className="flex-1 px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <button
-                type="submit"
-                disabled={memberActionLoading}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>Thêm</span>
-              </button>
-            </form>
+            {/* System Admin Assignment Section (Visible ONLY for MAIN_SUPER_ADMIN) */}
+            {user?.email?.toLowerCase() === MAIN_SUPER_ADMIN.toLowerCase() && (
+              <div className="mb-6 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-3">
+                <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
+                  <Crown className="w-4 h-4 text-amber-400" />
+                  <span>Phân quyền Co-Admin Hệ Thống (Tối đa 2 Admins)</span>
+                </div>
+
+                {secondAdminEmail ? (
+                  <div className="flex items-center justify-between text-xs bg-slate-900/80 p-2 rounded-lg border border-amber-500/20">
+                    <span className="text-slate-200 truncate">{secondAdminEmail}</span>
+                    <button
+                      onClick={handleRemoveSecondAdmin}
+                      className="text-red-400 hover:text-red-300 text-[11px] font-medium underline"
+                    >
+                      Hủy quyền Admin
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleAssignSecondAdmin} className="flex gap-2">
+                    <input
+                      type="email"
+                      required
+                      value={newCoAdminInput}
+                      onChange={(e) => setNewCoAdminInput(e.target.value)}
+                      placeholder="Nhập email làm Admin thứ 2..."
+                      className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shrink-0"
+                    >
+                      Gán Admin
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Add Member Input Form (Visible ONLY to Admins) */}
+            {isCurrentAdmin ? (
+              <form onSubmit={handleAddMember} className="flex gap-2 mb-5">
+                <input
+                  type="email"
+                  required
+                  value={newMemberEmail}
+                  onChange={(e) => setNewMemberEmail(e.target.value)}
+                  placeholder="Nhập email nhân viên được phép vào phòng..."
+                  className="flex-1 px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="submit"
+                  disabled={memberActionLoading}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Thêm</span>
+                </button>
+              </form>
+            ) : (
+              <p className="text-xs text-slate-400 mb-4 italic">
+                Chỉ Admin mới có quyền thêm hoặc xóa thành viên khỏi phòng này.
+              </p>
+            )}
 
             {/* Members List */}
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
               <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                Danh sách thành viên ({roomMembers.length})
+                Thành viên có quyền vào phòng ({roomMembers.length})
               </p>
 
               {roomMembers.map((member, index) => {
-                const isAdmin = member.role === 'admin' || member.user_email === user?.email;
+                const isMemberAdmin = isSystemAdmin(member.user_email);
 
                 return (
                   <div
@@ -1163,15 +1317,15 @@ export default function ChatPage() {
                     <div className="flex items-center gap-2 truncate">
                       <User className="w-4 h-4 text-indigo-400 shrink-0" />
                       <span className="text-slate-200 truncate">{member.user_email}</span>
-                      {isAdmin && (
+                      {isMemberAdmin && (
                         <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">
-                          <ShieldCheck className="w-3 h-3" />
+                          <Crown className="w-3 h-3 text-amber-400" />
                           Admin
                         </span>
                       )}
                     </div>
 
-                    {!isAdmin && (
+                    {isCurrentAdmin && !isMemberAdmin && (
                       <button
                         onClick={() => handleRemoveMember(member.user_email)}
                         className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700/60 rounded-lg transition"

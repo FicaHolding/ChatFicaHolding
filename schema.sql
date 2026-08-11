@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
--- Dam bao cot user_email, user_name & room_id luon ton tai ke ca khi bang messages da duoc tao tu truoc
+-- Dam bao cot user_email, user_name & room_id luon ton tai
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_email TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_name TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_url TEXT;
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS public.room_members (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   room_id TEXT NOT NULL,
   user_email TEXT NOT NULL,
-  role TEXT DEFAULT 'member', -- 'admin' hoac 'member'
+  role TEXT DEFAULT 'member', -- 'super_admin', 'admin', hoac 'member'
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
   CONSTRAINT unique_room_user UNIQUE(room_id, user_email)
 );

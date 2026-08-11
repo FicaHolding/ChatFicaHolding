@@ -14,12 +14,13 @@ export interface ChatRoom {
   id: string;
   name: string;
   isPrivate?: boolean;
+  allowed_emails?: string[];
 }
 
 export interface RoomMember {
   id?: string;
   room_id: string;
   user_email: string;
-  role: 'admin' | 'member';
+  role: 'super_admin' | 'admin' | 'member';
   created_at?: string;
 }
