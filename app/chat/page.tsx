@@ -128,16 +128,15 @@ export default function ChatPage() {
       localStorage.removeItem('fica_chat_rooms');
       localStorage.removeItem('fica_chat_rooms_v2');
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v3');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v4');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
-        // Filter out any legacy general room
         const cleanRooms = parsed.filter((r) => r.id !== 'general');
         if (cleanRooms.length > 0) {
           setRooms(cleanRooms);
         }
       } else {
-        localStorage.setItem('fica_chat_rooms_v3', JSON.stringify(INITIAL_ROOMS));
+        localStorage.setItem('fica_chat_rooms_v4', JSON.stringify(INITIAL_ROOMS));
       }
     } catch (e) {
       console.log('Error reading saved data:', e);
@@ -149,23 +148,16 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v3', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v4', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
-  };
-
-  // Helper check: Is user Global Super Admin (fica.holding@gmail.com)?
-  const isGlobalSuperAdmin = (email?: string | null): boolean => {
-    if (!email) return false;
-    return email.toLowerCase().trim() === GLOBAL_SUPER_ADMIN.toLowerCase();
   };
 
   // Helper check: Is user Room Creator / Admin (Trưởng nhóm)?
   const isRoomOwner = (room: ChatRoom | null, email?: string | null): boolean => {
     if (!room || !email) return false;
     const userEmail = email.toLowerCase().trim();
-    if (isGlobalSuperAdmin(userEmail)) return true;
     return room.created_by.toLowerCase().trim() === userEmail;
   };
 
@@ -183,26 +175,24 @@ export default function ChatPage() {
     return isRoomOwner(room, email) || isViceAdmin(room, email);
   };
 
-  // Helper check: Can user delete/disband room? (ONLY Trưởng nhóm or Super Admin)
+  // Helper check: Can user delete/disband room? (ONLY Trưởng nhóm)
   const canDeleteRoom = (room: ChatRoom | null, email?: string | null): boolean => {
     return isRoomOwner(room, email);
   };
 
   // Strict check if a user can see and enter a specific room
+  //fica.holding@gmail.com is NOT auto-added; only enters if added by room owner!
   const canUserAccessRoom = (room: ChatRoom, userEmail?: string | null): boolean => {
     if (!userEmail || room.id === 'general') return false;
     const email = userEmail.toLowerCase().trim();
 
-    // 1. Super Admin fica.holding@gmail.com has global audit access to ALL rooms
-    if (isGlobalSuperAdmin(email)) return true;
-
-    // 2. Room Owner / Creator has access
+    // 1. Room Owner / Creator has access
     if (room.created_by.toLowerCase().trim() === email) return true;
 
-    // 3. Vice admins have access
+    // 2. Vice admins have access
     if ((room.vice_admins || []).some((v) => v.toLowerCase().trim() === email)) return true;
 
-    // 4. Allowed members have access
+    // 3. Allowed members have access (only if added by creator/admin)
     if ((room.allowed_emails || []).some((e) => e.toLowerCase().trim() === email)) return true;
 
     return false;
@@ -454,7 +444,7 @@ export default function ChatPage() {
     }
   };
 
-  // Assign or Remove Vice Admin (Phó Nhóm) - ONLY Trưởng Nhóm or Super Admin
+  // Assign or Remove Vice Admin (Phó Nhóm) - ONLY Trưởng Nhóm
   const handleToggleViceAdmin = (targetEmail: string, currentRole: string) => {
     if (!activeRoom) return;
 
@@ -484,12 +474,6 @@ export default function ChatPage() {
         }
         return m;
       })
-    );
-
-    alert(
-      isPromoting
-        ? `Đã bổ nhiệm ${targetEmail} làm Phó Nhóm!`
-        : `Đã hủy quyền Phó Nhóm của ${targetEmail}!`
     );
   };
 
@@ -525,19 +509,21 @@ export default function ChatPage() {
     }
   };
 
-  // Create New Chat Room (BẤT KỲ AI THAM GIA APP CŨNG TẠO ĐƯỢC - Giống Zalo)
+  // Create New Chat Room (ONLY creator is in allowed_emails! DO NOT AUTO ADD fica.holding@gmail.com)
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim() || !user) return;
 
     const roomId = `room_${Date.now()}`;
+    const creatorEmail = user.email || '';
+
     const newRoom: ChatRoom = {
       id: roomId,
       name: newRoomName.trim(),
-      created_by: user.email || GLOBAL_SUPER_ADMIN,
+      created_by: creatorEmail,
       isPrivate: true,
       vice_admins: [],
-      allowed_emails: [user.email || GLOBAL_SUPER_ADMIN, GLOBAL_SUPER_ADMIN],
+      allowed_emails: [creatorEmail], // ONLY the creator!
     };
 
     const updated = [...rooms, newRoom];
@@ -548,7 +534,7 @@ export default function ChatPage() {
     setShowMobileSidebar(false);
   };
 
-  // Handle Delete Chat Room / Disband Group (ONLY Trưởng nhóm or Super Admin)
+  // Handle Delete Chat Room / Disband Group (ONLY Trưởng nhóm)
   const handleDeleteRoom = async () => {
     if (!activeRoom) return;
 
@@ -790,13 +776,8 @@ export default function ChatPage() {
             <div>
               <h2 className="font-bold text-sm text-white flex items-center gap-1">
                 <span>Fica Holding Chat</span>
-                {isGlobalSuperAdmin(user?.email) && (
-                  <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                )}
               </h2>
-              <p className="text-[10px] text-slate-400">
-                {isGlobalSuperAdmin(user?.email) ? 'Super Admin Hệ Thống' : 'Phòng chat công ty'}
-              </p>
+              <p className="text-[10px] text-slate-400">Phòng chat công ty</p>
             </div>
           </div>
           <button
@@ -807,7 +788,7 @@ export default function ChatPage() {
           </button>
         </div>
 
-        {/* Create Room Button - Available to ALL users (Zalo model) */}
+        {/* Create Room Button - Available to ALL users */}
         <div className="p-3">
           <button
             onClick={() => setShowCreateRoomModal(true)}
@@ -882,12 +863,7 @@ export default function ChatPage() {
               <User className="w-4 h-4" />
             </div>
             <div className="truncate min-w-0">
-              <p className="text-xs font-semibold text-white truncate flex items-center gap-1">
-                <span>{displayName}</span>
-                {isGlobalSuperAdmin(user?.email) && (
-                  <Crown className="w-3 h-3 text-amber-400 shrink-0" />
-                )}
-              </p>
+              <p className="text-xs font-semibold text-white truncate">{displayName}</p>
               <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
             </div>
           </button>
@@ -939,7 +915,7 @@ export default function ChatPage() {
               </div>
 
               <div className="flex items-center gap-2 sm:gap-3">
-                {/* Delete Room / Disband Group Button (ONLY Trưởng nhóm or Super Admin) */}
+                {/* Delete Room / Disband Group Button (ONLY Trưởng nhóm) */}
                 {canDeleteRoom(activeRoom, user?.email) && (
                   <button
                     onClick={() => setShowDeleteRoomModal(true)}
@@ -1209,7 +1185,7 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Delete Room Confirmation Modal (ONLY Trưởng nhóm & Super Admin) */}
+      {/* Delete Room Confirmation Modal (ONLY Trưởng nhóm) */}
       {showDeleteRoomModal && activeRoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
@@ -1363,7 +1339,7 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* Add Member Input Form (Allowed for Trưởng Nhóm, Phó Nhóm, and Super Admin) */}
+            {/* Add Member Input Form (Allowed for Trưởng Nhóm and Phó Nhóm) */}
             {canManageMembers(activeRoom, user?.email) ? (
               <form onSubmit={handleAddMember} className="flex gap-2 mb-5">
                 <input
@@ -1401,7 +1377,6 @@ export default function ChatPage() {
                 const isVice = (activeRoom.vice_admins || []).some(
                   (v) => v.toLowerCase() === targetEmailLower
                 );
-                const isSuper = isGlobalSuperAdmin(targetEmailLower);
 
                 const currentCanManageTarget =
                   isRoomOwner(activeRoom, user?.email) ||
@@ -1414,7 +1389,7 @@ export default function ChatPage() {
                   >
                     <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                       <User className="w-4 h-4 text-indigo-400 shrink-0" />
-                      <span className="text-slate-200 truncate">{member.user_email}</span>
+                      <span className="text-slate-200 truncate font-medium">{member.user_email}</span>
 
                       {/* Badges */}
                       {isOwner && (
@@ -1433,26 +1408,27 @@ export default function ChatPage() {
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      {/* Toggle Vice Admin Button (ONLY Trưởng Nhóm or Super Admin) */}
-                      {isRoomOwner(activeRoom, user?.email) && !isOwner && !isSuper && (
+                      {/* Toggle Vice Admin Button (ONLY Trưởng Nhóm for any member except themselves) */}
+                      {isRoomOwner(activeRoom, user?.email) && !isOwner && (
                         <button
                           type="button"
                           onClick={() =>
                             handleToggleViceAdmin(member.user_email, isVice ? 'vice_admin' : 'member')
                           }
-                          className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition ${
+                          className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition flex items-center gap-1 ${
                             isVice
-                              ? 'bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20'
+                              ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
                               : 'bg-sky-500/10 text-sky-300 border-sky-500/30 hover:bg-sky-500/20'
                           }`}
                           title={isVice ? 'Hủy quyền Phó nhóm' : 'Bổ nhiệm Phó nhóm'}
                         >
-                          {isVice ? 'Hủy Phó nhóm' : 'Bổ nhiệm Phó nhóm'}
+                          <Award className="w-3 h-3" />
+                          <span>{isVice ? 'Hủy Phó nhóm' : 'Bổ nhiệm Phó nhóm'}</span>
                         </button>
                       )}
 
                       {/* Remove Member Button */}
-                      {currentCanManageTarget && !isOwner && !isSuper && (
+                      {currentCanManageTarget && !isOwner && (
                         <button
                           onClick={() => handleRemoveMember(member.user_email)}
                           className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700/60 rounded-lg transition"
