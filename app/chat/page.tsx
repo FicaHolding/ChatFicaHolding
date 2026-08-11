@@ -29,11 +29,12 @@ import {
   Trash2,
   ShieldCheck,
   UserCheck,
+  AlertTriangle,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
 
-const DEFAULT_ROOMS: ChatRoom[] = [
+const INITIAL_DEFAULT_ROOMS: ChatRoom[] = [
   { id: 'general', name: 'Phòng Chat Chung', isPrivate: false },
   { id: 'room_ke_toan', name: 'Phòng Kế Toán', isPrivate: true },
   { id: 'room_kinh_doanh', name: 'Phòng Kinh Doanh', isPrivate: true },
@@ -55,14 +56,18 @@ export default function ChatPage() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
 
-  // Rooms state
-  const [rooms, setRooms] = useState<ChatRoom[]>(DEFAULT_ROOMS);
-  const [activeRoom, setActiveRoom] = useState<ChatRoom>(DEFAULT_ROOMS[0]);
+  // Rooms state (persisted in localStorage)
+  const [rooms, setRooms] = useState<ChatRoom[]>(INITIAL_DEFAULT_ROOMS);
+  const [activeRoom, setActiveRoom] = useState<ChatRoom>(INITIAL_DEFAULT_ROOMS[0]);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
 
   // Create new room modal
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
+
+  // Delete room confirm modal
+  const [showDeleteRoomModal, setShowDeleteRoomModal] = useState(false);
+  const [deleteRoomLoading, setDeleteRoomLoading] = useState(false);
 
   // Member Management modal
   const [showMembersModal, setShowMembersModal] = useState(false);
@@ -95,6 +100,31 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Load custom rooms from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('fica_chat_rooms');
+      if (saved) {
+        const parsed = JSON.parse(saved) as ChatRoom[];
+        if (parsed.length > 0) {
+          setRooms(parsed);
+        }
+      }
+    } catch (e) {
+      console.log('Error reading saved rooms:', e);
+    }
+  }, []);
+
+  // Save custom rooms to localStorage
+  const updateRoomsState = (newRooms: ChatRoom[]) => {
+    setRooms(newRooms);
+    try {
+      localStorage.setItem('fica_chat_rooms', JSON.stringify(newRooms));
+    } catch (e) {
+      console.log('Error saving rooms:', e);
+    }
+  };
 
   // Initial load: User session & Fetch existing messages for activeRoom & Setup Realtime
   useEffect(() => {
@@ -282,12 +312,6 @@ export default function ChatPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
-  };
-
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
@@ -299,11 +323,48 @@ export default function ChatPage() {
       isPrivate: true,
     };
 
-    setRooms((prev) => [...prev, newRoom]);
+    const updated = [...rooms, newRoom];
+    updateRoomsState(updated);
     setActiveRoom(newRoom);
     setNewRoomName('');
     setShowCreateRoomModal(false);
     setShowMobileSidebar(false);
+  };
+
+  // Handle Delete Chat Room (Admin action)
+  const handleDeleteRoom = async () => {
+    if (activeRoom.id === 'general') {
+      alert('Không thể xóa Phòng Chat Chung mặc định!');
+      return;
+    }
+
+    setDeleteRoomLoading(true);
+
+    try {
+      // Delete messages in this room from Supabase
+      await supabase.from('messages').delete().eq('room_id', activeRoom.id);
+      // Delete room members in this room from Supabase
+      await supabase.from('room_members').delete().eq('room_id', activeRoom.id);
+    } catch (e) {
+      console.log('Error deleting room records on DB:', e);
+    } finally {
+      // Remove room from rooms array
+      const filteredRooms = rooms.filter((r) => r.id !== activeRoom.id);
+      updateRoomsState(filteredRooms);
+
+      // Switch back to General Room
+      const generalRoom = filteredRooms.find((r) => r.id === 'general') || INITIAL_DEFAULT_ROOMS[0];
+      setActiveRoom(generalRoom);
+
+      setDeleteRoomLoading(false);
+      setShowDeleteRoomModal(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -591,15 +652,17 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Edit Display Name Button */}
-            <button
-              onClick={() => setShowProfileModal(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-800 rounded-xl border border-slate-700/60 text-xs text-slate-300 transition"
-              title="Nhấp để đổi tên hiển thị"
-            >
-              <User className="w-4 h-4 text-indigo-400" />
-              <span className="max-w-[140px] truncate font-medium">{displayName}</span>
-            </button>
+            {/* Admin Delete Room Button (Visible for non-general rooms) */}
+            {activeRoom.id !== 'general' && (
+              <button
+                onClick={() => setShowDeleteRoomModal(true)}
+                className="p-2 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 border border-transparent rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
+                title="Xóa phòng chat này (Dành cho Admin)"
+              >
+                <Trash2 className="w-4 h-4 text-red-400" />
+                <span className="hidden sm:inline">Xóa phòng</span>
+              </button>
+            )}
 
             {/* Admin Member Management Button */}
             <button
@@ -836,6 +899,59 @@ export default function ChatPage() {
         </footer>
       </div>
 
+      {/* Delete Room Confirmation Modal */}
+      {showDeleteRoomModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+            <button
+              onClick={() => setShowDeleteRoomModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4 text-red-400">
+              <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/30">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-lg">Xác nhận xóa phòng chat</h3>
+                <p className="text-xs text-slate-400">Hành động này không thể hoàn tác</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-300 leading-relaxed mb-6">
+              Bạn có chắc chắn muốn xóa <strong className="text-white">{activeRoom.name}</strong>? Tất cả tin nhắn và dữ liệu thành viên trong phòng này sẽ bị xóa hoàn toàn.
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteRoomModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteRoom}
+                disabled={deleteRoomLoading}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-red-600/30 transition disabled:opacity-50 flex items-center gap-2"
+              >
+                {deleteRoomLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Xóa phòng này</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Profile / Display Name Modal */}
       {showProfileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -1030,7 +1146,7 @@ export default function ChatPage() {
                   required
                   value={newRoomName}
                   onChange={(e) => setNewRoomName(e.target.value)}
-                  placeholder="Ví dụ: Team Dự Án A, Phòng Dự Án..."
+                  placeholder="Ví dụ: Team Dự Án A, Phòng Sản Xuất..."
                   className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                 />
               </div>
