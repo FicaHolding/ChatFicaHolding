@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Message } from '@/lib/types';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import InstallPWA from '../components/InstallPWA';
 import {
   Send,
   LogOut,
@@ -233,6 +234,9 @@ export default function ChatPage() {
           </button>
         </div>
       </header>
+
+      {/* PWA Mobile Install Banner */}
+      <InstallPWA />
 
       {/* Messages Feed */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
