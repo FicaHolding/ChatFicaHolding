@@ -17,6 +17,8 @@ import {
   User,
   Download,
   Loader2,
+  Key,
+  CheckCircle2,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
@@ -28,6 +30,14 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+
+  // Password modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
   // File upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -105,6 +115,47 @@ export default function ChatPage() {
     await supabase.auth.signOut();
     router.push('/login');
     router.refresh();
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    if (newPassword.length < 6) {
+      setPasswordError('Mật khẩu mới phải có ít nhất 6 ký tự!');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('Nhập lại mật khẩu mới không khớp!');
+      return;
+    }
+
+    setPasswordLoading(true);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        setPasswordError(error.message);
+      } else {
+        setPasswordSuccess('Đổi mật khẩu thành công!');
+        setNewPassword('');
+        setConfirmNewPassword('');
+        setTimeout(() => {
+          setShowPasswordModal(false);
+          setPasswordSuccess(null);
+        }, 1500);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Đã có lỗi xảy ra';
+      setPasswordError(msg);
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,12 +269,27 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 rounded-xl border border-slate-700/60 text-xs text-slate-300">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 rounded-xl border border-slate-700/60 text-xs text-slate-300">
             <User className="w-4 h-4 text-indigo-400" />
             <span className="max-w-[180px] truncate">{user?.email}</span>
           </div>
 
+          {/* Change Password Button */}
+          <button
+            onClick={() => {
+              setShowPasswordModal(true);
+              setPasswordError(null);
+              setPasswordSuccess(null);
+            }}
+            className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
+            title="Thay đổi mật khẩu"
+          >
+            <Key className="w-4 h-4 text-indigo-400" />
+            <span className="hidden sm:inline">Đổi mật khẩu</span>
+          </button>
+
+          {/* Logout Button */}
           <button
             onClick={handleLogout}
             className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
@@ -422,6 +488,94 @@ export default function ChatPage() {
           </button>
         </form>
       </footer>
+
+      {/* Change Password Modal */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+            <button
+              onClick={() => setShowPasswordModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+                <Key className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-lg">Thay đổi mật khẩu</h3>
+                <p className="text-xs text-slate-400">Cập nhật mật khẩu mới cho tài khoản</p>
+              </div>
+            </div>
+
+            {passwordError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
+                {passwordError}
+              </div>
+            )}
+
+            {passwordSuccess && (
+              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{passwordSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                  Mật khẩu mới
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                  Nhập lại mật khẩu mới
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {passwordLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>Cập nhật mật khẩu</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
