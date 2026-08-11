@@ -2,6 +2,7 @@ export interface Message {
   id: string;
   user_id: string;
   user_email: string;
+  user_name?: string | null;
   content: string;
   file_url?: string | null;
   file_type?: string | null; // 'image' | 'file'

@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { UserPlus, MessageSquare, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function RegisterPage() {
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -37,6 +38,11 @@ export default function RegisterPage() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            full_name: fullName.trim() || email.split('@')[0],
+          },
+        },
       });
 
       if (error) {
@@ -46,11 +52,10 @@ export default function RegisterPage() {
       }
 
       if (data.session) {
-        // Logged in immediately
         router.push('/chat');
         router.refresh();
       } else {
-        setSuccess('Đăng ký thành công! Vui lòng kiểm tra email để xác thực (hoặc đăng nhập ngay nếu không bật Email Confirmation).');
+        setSuccess('Đăng ký thành công! Bạn có thể đăng nhập ngay.');
         setLoading(false);
       }
     } catch (err: unknown) {
@@ -87,6 +92,20 @@ export default function RegisterPage() {
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+              Họ và Tên / Tên hiển thị
+            </label>
+            <input
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Ví dụ: Nguyễn Văn A, Fica Admin..."
+              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
               Email
             </label>
             <input
@@ -95,7 +114,7 @@ export default function RegisterPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
-              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
             />
           </div>
 
@@ -109,7 +128,7 @@ export default function RegisterPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
             />
           </div>
 
@@ -123,7 +142,7 @@ export default function RegisterPage() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
             />
           </div>
 

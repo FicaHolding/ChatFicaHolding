@@ -28,6 +28,7 @@ import {
   UserPlus,
   Trash2,
   ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
@@ -43,9 +44,16 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+
+  // Profile modal state
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [editNameInput, setEditNameInput] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
 
   // Rooms state
   const [rooms, setRooms] = useState<ChatRoom[]>(DEFAULT_ROOMS);
@@ -105,6 +113,12 @@ export default function ChatPage() {
       }
 
       setUser(currentUser);
+      const name =
+        currentUser.user_metadata?.full_name ||
+        currentUser.email?.split('@')[0] ||
+        'Thành viên Fica';
+      setDisplayName(name);
+      setEditNameInput(name);
 
       // Fetch messages for active room
       const { data, error } = await supabase
@@ -158,6 +172,37 @@ export default function ChatPage() {
     };
   }, [activeRoom, router, supabase]);
 
+  // Handle Display Name Update
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editNameInput.trim()) return;
+
+    setProfileLoading(true);
+    setProfileSuccess(null);
+
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        data: { full_name: editNameInput.trim() },
+      });
+
+      if (error) {
+        alert('Lỗi cập nhật tên: ' + error.message);
+      } else if (data.user) {
+        setUser(data.user);
+        setDisplayName(editNameInput.trim());
+        setProfileSuccess('Đã cập nhật tên hiển thị thành công!');
+        setTimeout(() => {
+          setShowProfileModal(false);
+          setProfileSuccess(null);
+        }, 1500);
+      }
+    } catch {
+      alert('Đã có lỗi xảy ra');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   // Fetch Room Members when members modal is opened
   const fetchRoomMembers = async () => {
     try {
@@ -169,7 +214,6 @@ export default function ChatPage() {
       if (data && data.length > 0) {
         setRoomMembers(data as RoomMember[]);
       } else {
-        // Fallback default admin is current user
         setRoomMembers([
           {
             room_id: activeRoom.id,
@@ -368,10 +412,11 @@ export default function ChatPage() {
         uploadedFileUrl = publicUrlData.publicUrl;
       }
 
-      // Insert message into Postgres DB with room_id
+      // Insert message into Postgres DB with user_name & room_id
       const { error: insertError } = await supabase.from('messages').insert({
         user_id: user.id,
         user_email: user.email,
+        user_name: displayName,
         content: inputText.trim(),
         file_url: uploadedFileUrl,
         file_type: uploadedFileType,
@@ -466,10 +511,19 @@ export default function ChatPage() {
 
         {/* User Info Bottom Footer */}
         <div className="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <User className="w-4 h-4 text-indigo-400 shrink-0" />
-            <span className="text-xs text-slate-300 truncate">{user?.email}</span>
-          </div>
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="flex items-center gap-2.5 text-left min-w-0 flex-1 hover:opacity-80 transition"
+            title="Đổi tên hiển thị"
+          >
+            <div className="p-1.5 bg-indigo-600/20 text-indigo-400 rounded-lg shrink-0 border border-indigo-500/30">
+              <User className="w-4 h-4" />
+            </div>
+            <div className="truncate min-w-0">
+              <p className="text-xs font-semibold text-white truncate">{displayName}</p>
+              <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
+            </div>
+          </button>
         </div>
       </aside>
 
@@ -510,6 +564,16 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Edit Display Name Button */}
+            <button
+              onClick={() => setShowProfileModal(true)}
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-800 rounded-xl border border-slate-700/60 text-xs text-slate-300 transition"
+              title="Nhấp để đổi tên hiển thị"
+            >
+              <User className="w-4 h-4 text-indigo-400" />
+              <span className="max-w-[140px] truncate font-medium">{displayName}</span>
+            </button>
+
             {/* Admin Member Management Button */}
             <button
               onClick={handleOpenMembersModal}
@@ -567,6 +631,7 @@ export default function ChatPage() {
           ) : (
             messages.map((msg) => {
               const isMe = msg.user_id === user?.id;
+              const senderDisplayName = msg.user_name || msg.user_email?.split('@')[0] || msg.user_email;
 
               return (
                 <div
@@ -574,7 +639,8 @@ export default function ChatPage() {
                   className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}
                 >
                   <span className="text-[11px] text-slate-400 px-1">
-                    {isMe ? 'Bạn' : msg.user_email} •{' '}
+                    <strong className="font-semibold text-slate-300">{isMe ? 'Bạn' : senderDisplayName}</strong>{' '}
+                    <span className="text-slate-500">({msg.user_email})</span> •{' '}
                     {new Date(msg.created_at).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -742,6 +808,86 @@ export default function ChatPage() {
           </form>
         </footer>
       </div>
+
+      {/* Edit Profile / Display Name Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+            <button
+              onClick={() => setShowProfileModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+                <UserCheck className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-lg">Đổi Tên hiển thị</h3>
+                <p className="text-xs text-slate-400">Đặt tên hiển thị thay cho email dài ngoẵng</p>
+              </div>
+            </div>
+
+            {profileSuccess && (
+              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{profileSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateProfile} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                  Email tài khoản
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={user?.email || ''}
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-400 text-sm cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                  Họ và tên / Tên hiển thị mới
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editNameInput}
+                  onChange={(e) => setEditNameInput(e.target.value)}
+                  placeholder="Ví dụ: Nguyễn Văn A, Sếp Hùng..."
+                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileLoading}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {profileLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>Lưu tên hiển thị</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Member Management Modal */}
       {showMembersModal && (

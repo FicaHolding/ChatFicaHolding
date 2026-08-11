@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   user_email TEXT NOT NULL,
+  user_name TEXT,
   content TEXT,
   file_url TEXT,
   file_type TEXT, -- 'image' hoac 'file'
@@ -15,8 +16,9 @@ CREATE TABLE IF NOT EXISTS public.messages (
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
--- Dam bao cot user_email & room_id luon ton tai ke ca khi bang messages da duoc tao tu truoc
+-- Dam bao cot user_email, user_name & room_id luon ton tai ke ca khi bang messages da duoc tao tu truoc
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_email TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_name TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_url TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_type TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS room_id TEXT DEFAULT 'general';
