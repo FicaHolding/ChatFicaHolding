@@ -206,12 +206,12 @@ export default function ChatPage() {
   // Fetch Room Members when members modal is opened
   const fetchRoomMembers = async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('room_members')
         .select('*')
         .eq('room_id', activeRoom.id);
 
-      if (data && data.length > 0) {
+      if (!error && data && data.length > 0) {
         setRoomMembers(data as RoomMember[]);
       } else {
         setRoomMembers([
@@ -242,30 +242,24 @@ export default function ChatPage() {
     e.preventDefault();
     if (!newMemberEmail.trim()) return;
 
+    const emailToAdd = newMemberEmail.trim().toLowerCase();
     setMemberActionLoading(true);
 
+    // Optimistically update UI local state instantly
+    setRoomMembers((prev) => {
+      if (prev.some((m) => m.user_email === emailToAdd)) return prev;
+      return [...prev, { room_id: activeRoom.id, user_email: emailToAdd, role: 'member' }];
+    });
+    setNewMemberEmail('');
+
     try {
-      const { error } = await supabase.from('room_members').insert({
+      await supabase.from('room_members').insert({
         room_id: activeRoom.id,
-        user_email: newMemberEmail.trim().toLowerCase(),
+        user_email: emailToAdd,
         role: 'member',
       });
-
-      if (error && error.code !== '23505') {
-        alert('Lỗi thêm thành viên: ' + error.message);
-      } else {
-        setRoomMembers((prev) => [
-          ...prev,
-          { room_id: activeRoom.id, user_email: newMemberEmail.trim().toLowerCase(), role: 'member' },
-        ]);
-        setNewMemberEmail('');
-      }
     } catch {
-      setRoomMembers((prev) => [
-        ...prev,
-        { room_id: activeRoom.id, user_email: newMemberEmail.trim().toLowerCase(), role: 'member' },
-      ]);
-      setNewMemberEmail('');
+      // Safe fallback if room_members table SQL hasn't been run yet
     } finally {
       setMemberActionLoading(false);
     }
@@ -274,16 +268,16 @@ export default function ChatPage() {
   const handleRemoveMember = async (emailToRemove: string) => {
     if (!confirm(`Bạn có chắc muốn mời ${emailToRemove} ra khỏi phòng?`)) return;
 
+    setRoomMembers((prev) => prev.filter((m) => m.user_email !== emailToRemove));
+
     try {
       await supabase
         .from('room_members')
         .delete()
         .eq('room_id', activeRoom.id)
         .eq('user_email', emailToRemove);
-
-      setRoomMembers((prev) => prev.filter((m) => m.user_email !== emailToRemove));
     } catch {
-      setRoomMembers((prev) => prev.filter((m) => m.user_email !== emailToRemove));
+      // Safe fallback
     }
   };
 
