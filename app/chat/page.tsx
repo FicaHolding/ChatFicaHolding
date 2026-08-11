@@ -132,13 +132,25 @@ export default function ChatPage() {
     try {
       const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
       if (localRoom) return localRoom;
-      // Check content match in local memory
       const matchByContent = localStorage.getItem(`fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`);
       if (matchByContent) return matchByContent;
     } catch {
       // Fallback
     }
     return 'general';
+  };
+
+  // Smart deduplication helper matching IDs or User+Content+Timeframe
+  const isSameMessage = (msgA: Message, msgB: Message): boolean => {
+    if (msgA.id === msgB.id) return true;
+    if (
+      msgA.user_id === msgB.user_id &&
+      msgA.content === msgB.content &&
+      Math.abs(new Date(msgA.created_at).getTime() - new Date(msgB.created_at).getTime()) < 6000
+    ) {
+      return true;
+    }
+    return false;
   };
 
   // Initial load: User session & Fetch existing messages for activeRoom & Setup Realtime
@@ -199,7 +211,12 @@ export default function ChatPage() {
 
             if (msgRoomId === activeRoom.id) {
               setMessages((prev) => {
-                if (prev.some((m) => m.id === newMessage.id)) return prev;
+                const existingIndex = prev.findIndex((m) => isSameMessage(m, newMessage));
+                if (existingIndex !== -1) {
+                  const updated = [...prev];
+                  updated[existingIndex] = { ...newMessage, room_id: msgRoomId };
+                  return updated;
+                }
                 return [...prev, { ...newMessage, room_id: msgRoomId }];
               });
             }
@@ -508,7 +525,16 @@ export default function ChatPage() {
         // Ignore local storage errors
       }
 
-      setMessages((prev) => [...prev, newMsgObj]);
+      setMessages((prev) => {
+        const existingIndex = prev.findIndex((m) => isSameMessage(m, newMsgObj));
+        if (existingIndex !== -1) {
+          const updated = [...prev];
+          updated[existingIndex] = newMsgObj;
+          return updated;
+        }
+        return [...prev, newMsgObj];
+      });
+
       setInputText('');
       handleClearFile();
 
@@ -548,13 +574,18 @@ export default function ChatPage() {
         insertError = retryError;
       }
 
-      // If DB insert returned created message ID, bind it to currentRoomId in localStorage
+      // If DB insert returned created message ID, replace temporary ID and bind room in localStorage
       if (insertedData && insertedData[0]?.id) {
+        const realId = insertedData[0].id;
         try {
-          localStorage.setItem(`fica_msg_room_${insertedData[0].id}`, currentRoomId);
+          localStorage.setItem(`fica_msg_room_${realId}`, currentRoomId);
         } catch {
           // Ignore
         }
+
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...insertedData[0], room_id: currentRoomId } : m))
+        );
       }
 
       if (insertError) {
