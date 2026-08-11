@@ -5,5 +5,12 @@ export interface Message {
   content: string;
   file_url?: string | null;
   file_type?: string | null; // 'image' | 'file'
+  room_id?: string;
   created_at: string;
+}
+
+export interface ChatRoom {
+  id: string;
+  name: string;
+  isPrivate?: boolean;
 }

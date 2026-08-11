@@ -11,13 +11,15 @@ CREATE TABLE IF NOT EXISTS public.messages (
   content TEXT,
   file_url TEXT,
   file_type TEXT, -- 'image' hoac 'file'
+  room_id TEXT DEFAULT 'general',
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
--- Dam bao cot user_email luon ton tai ke ca khi bang messages da duoc tao tu truoc
+-- Dam bao cot user_email & room_id luon ton tai ke ca khi bang messages da duoc tao tu truoc
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_email TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_url TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS file_type TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS room_id TEXT DEFAULT 'general';
 
 -- 2. Bat Row Level Security (RLS) cho bang messages
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
