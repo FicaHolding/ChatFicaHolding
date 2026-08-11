@@ -50,11 +50,12 @@ export default function RegisterPage() {
         router.push('/chat');
         router.refresh();
       } else {
-        setSuccess('Đăng ký thành công!Vui lòng kiểm tra email để xác thực (hoặc đăng nhập ngay nếu không bật Email Confirmation).');
+        setSuccess('Đăng ký thành công! Vui lòng kiểm tra email để xác thực (hoặc đăng nhập ngay nếu không bật Email Confirmation).');
         setLoading(false);
       }
-    } catch (err: any) {
-      setError(err.message || 'Đã có lỗi xảy ra khi đăng ký');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Đã có lỗi xảy ra khi đăng ký';
+      setError(message);
       setLoading(false);
     }
   };

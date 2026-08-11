@@ -33,8 +33,9 @@ export default function LoginPage() {
 
       router.push('/chat');
       router.refresh();
-    } catch (err: any) {
-      setError(err.message || 'Đã có lỗi xảy ra khi đăng nhập');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Đã có lỗi xảy ra khi đăng nhập';
+      setError(message);
       setLoading(false);
     }
   };

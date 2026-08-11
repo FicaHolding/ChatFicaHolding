@@ -4,10 +4,10 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Message } from '@/lib/types';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 import {
   Send,
   LogOut,
-  Image as ImageIcon,
   Paperclip,
   Smile,
   X,
@@ -23,7 +23,7 @@ const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️',
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
@@ -48,7 +48,7 @@ export default function ChatPage() {
 
   // Initial load: User session & Fetch existing messages & Setup Realtime
   useEffect(() => {
-    let channel: any = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
     const initChat = async () => {
       const {
@@ -139,7 +139,7 @@ export default function ChatPage() {
 
     setSending(true);
     let uploadedFileUrl: string | null = null;
-    let uploadedFileType: 'image' | 'file' | null = fileType;
+    const uploadedFileType: 'image' | 'file' | null = fileType;
 
     try {
       // Handle file upload if any
@@ -148,7 +148,7 @@ export default function ChatPage() {
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
         const filePath = `${user.id}/${fileName}`;
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from('chat-attachments')
           .upload(filePath, selectedFile);
 
@@ -182,7 +182,7 @@ export default function ChatPage() {
         setInputText('');
         handleClearFile();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Lỗi:', err);
     } finally {
       setSending(false);
@@ -268,6 +268,7 @@ export default function ChatPage() {
                   {/* Attached Image */}
                   {msg.file_url && msg.file_type === 'image' && (
                     <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={msg.file_url}
                         alt="Đính kèm"
@@ -313,6 +314,7 @@ export default function ChatPage() {
         <div className="px-6 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {fileType === 'image' && filePreview ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={filePreview}
                 alt="Preview"
