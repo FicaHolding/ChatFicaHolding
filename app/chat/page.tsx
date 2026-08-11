@@ -20,7 +20,6 @@ import {
   Key,
   CheckCircle2,
   Plus,
-  Hash,
   Lock,
   Menu,
   ChevronRight,
@@ -31,16 +30,38 @@ import {
   UserCheck,
   AlertTriangle,
   Crown,
+  Award,
+  UserCheck2,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
-const MAIN_SUPER_ADMIN = 'fica.holding@gmail.com';
+const GLOBAL_SUPER_ADMIN = 'fica.holding@gmail.com';
 
-const INITIAL_DEFAULT_ROOMS: ChatRoom[] = [
-  { id: 'general', name: 'Phòng Chat Chung', isPrivate: false, allowed_emails: [] },
-  { id: 'room_ke_toan', name: 'Phòng Kế Toán', isPrivate: true, allowed_emails: ['fica.holding@gmail.com'] },
-  { id: 'room_kinh_doanh', name: 'Phòng Kinh Doanh', isPrivate: true, allowed_emails: ['fica.holding@gmail.com'] },
-  { id: 'room_ky_thuat', name: 'Phòng Kỹ Thuật', isPrivate: true, allowed_emails: ['fica.holding@gmail.com'] },
+const INITIAL_ROOMS: ChatRoom[] = [
+  {
+    id: 'room_ke_toan',
+    name: 'Phòng Kế Toán',
+    created_by: 'fica.holding@gmail.com',
+    isPrivate: true,
+    vice_admins: [],
+    allowed_emails: ['fica.holding@gmail.com'],
+  },
+  {
+    id: 'room_kinh_doanh',
+    name: 'Phòng Kinh Doanh',
+    created_by: 'fica.holding@gmail.com',
+    isPrivate: true,
+    vice_admins: [],
+    allowed_emails: ['fica.holding@gmail.com'],
+  },
+  {
+    id: 'room_ky_thuat',
+    name: 'Phòng Kỹ Thuật',
+    created_by: 'fica.holding@gmail.com',
+    isPrivate: true,
+    vice_admins: [],
+    allowed_emails: ['fica.holding@gmail.com'],
+  },
 ];
 
 export default function ChatPage() {
@@ -52,10 +73,6 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
 
-  // System Co-Admin (Admin thứ 2)
-  const [secondAdminEmail, setSecondAdminEmail] = useState<string>('');
-  const [newCoAdminInput, setNewCoAdminInput] = useState<string>('');
-
   // Profile modal state
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editNameInput, setEditNameInput] = useState('');
@@ -63,8 +80,8 @@ export default function ChatPage() {
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
 
   // Rooms state (persisted in localStorage)
-  const [rooms, setRooms] = useState<ChatRoom[]>(INITIAL_DEFAULT_ROOMS);
-  const [activeRoom, setActiveRoom] = useState<ChatRoom>(INITIAL_DEFAULT_ROOMS[0]);
+  const [rooms, setRooms] = useState<ChatRoom[]>(INITIAL_ROOMS);
+  const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
 
   // Create new room modal
@@ -107,15 +124,10 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Load custom rooms & Second Admin from localStorage
+  // Load custom rooms from localStorage
   useEffect(() => {
     try {
-      const savedAdmin = localStorage.getItem('fica_second_admin');
-      if (savedAdmin) {
-        setSecondAdminEmail(savedAdmin.toLowerCase().trim());
-      }
-
-      const savedRooms = localStorage.getItem('fica_chat_rooms');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v2');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         if (parsed.length > 0) {
@@ -127,48 +139,47 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Check if an email is System Admin (Super Admin or Co-Admin)
-  const isSystemAdmin = (emailToCheck?: string | null): boolean => {
-    if (!emailToCheck) return false;
-    const e = emailToCheck.toLowerCase().trim();
-    if (e === MAIN_SUPER_ADMIN.toLowerCase()) return true;
-    if (secondAdminEmail && e === secondAdminEmail.toLowerCase()) return true;
-    return false;
-  };
-
-  const isCurrentAdmin = isSystemAdmin(user?.email);
-
-  // Save custom rooms state
+  // Save custom rooms state to localStorage
   const updateRoomsState = (newRooms: ChatRoom[]) => {
     setRooms(newRooms);
     try {
-      localStorage.setItem('fica_chat_rooms', JSON.stringify(newRooms));
+      localStorage.setItem('fica_chat_rooms_v2', JSON.stringify(newRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
   };
 
-  // Save second admin
-  const handleAssignSecondAdmin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const targetEmail = newCoAdminInput.trim().toLowerCase();
-    setSecondAdminEmail(targetEmail);
-    try {
-      localStorage.setItem('fica_second_admin', targetEmail);
-    } catch {
-      // Ignore
-    }
-    setNewCoAdminInput('');
-    alert(`Đã phân quyền Admin hệ thống cho: ${targetEmail}`);
+  // Helper check: Is user Global Super Admin (fica.holding@gmail.com)?
+  const isGlobalSuperAdmin = (email?: string | null): boolean => {
+    if (!email) return false;
+    return email.toLowerCase().trim() === GLOBAL_SUPER_ADMIN.toLowerCase();
   };
 
-  const handleRemoveSecondAdmin = () => {
-    setSecondAdminEmail('');
-    try {
-      localStorage.removeItem('fica_second_admin');
-    } catch {
-      // Ignore
-    }
+  // Helper check: Is user Room Creator / Admin (Trưởng nhóm)?
+  const isRoomOwner = (room: ChatRoom | null, email?: string | null): boolean => {
+    if (!room || !email) return false;
+    const userEmail = email.toLowerCase().trim();
+    if (isGlobalSuperAdmin(userEmail)) return true;
+    return room.created_by.toLowerCase().trim() === userEmail;
+  };
+
+  // Helper check: Is user Vice Admin (Phó nhóm)?
+  const isViceAdmin = (room: ChatRoom | null, email?: string | null): boolean => {
+    if (!room || !email) return false;
+    const userEmail = email.toLowerCase().trim();
+    if (isRoomOwner(room, userEmail)) return false; // Trưởng nhóm đã có quyền cao nhất
+    const viceList = room.vice_admins || [];
+    return viceList.some((v) => v.toLowerCase().trim() === userEmail);
+  };
+
+  // Helper check: Can user manage members (Add/Remove regular members)?
+  const canManageMembers = (room: ChatRoom | null, email?: string | null): boolean => {
+    return isRoomOwner(room, email) || isViceAdmin(room, email);
+  };
+
+  // Helper check: Can user delete/disband room? (ONLY Trưởng nhóm or Super Admin)
+  const canDeleteRoom = (room: ChatRoom | null, email?: string | null): boolean => {
+    return isRoomOwner(room, email);
   };
 
   // Strict check if a user can see and enter a specific room
@@ -176,27 +187,34 @@ export default function ChatPage() {
     if (!userEmail) return false;
     const email = userEmail.toLowerCase().trim();
 
-    // 1. Super Admin & Co-Admin can access ALL rooms
-    if (isSystemAdmin(email)) return true;
+    // 1. Super Admin fica.holding@gmail.com has global audit access to ALL rooms
+    if (isGlobalSuperAdmin(email)) return true;
 
-    // 2. General Public Room is accessible by everyone
-    if (room.id === 'general') return true;
+    // 2. Room Owner / Creator has access
+    if (room.created_by.toLowerCase().trim() === email) return true;
 
-    // 3. Check allowed_emails list on room
-    if (room.allowed_emails && room.allowed_emails.some((e) => e.toLowerCase() === email)) {
-      return true;
-    }
+    // 3. Vice admins have access
+    if ((room.vice_admins || []).some((v) => v.toLowerCase().trim() === email)) return true;
 
-    // 4. Check roomMembers array
-    if (roomMembers.some((m) => m.room_id === room.id && m.user_email.toLowerCase() === email)) {
-      return true;
-    }
+    // 4. Allowed members have access
+    if ((room.allowed_emails || []).some((e) => e.toLowerCase().trim() === email)) return true;
 
     return false;
   };
 
-  // Rooms visible to current user
+  // Filter rooms visible on sidebar for current user
   const visibleRooms = rooms.filter((r) => canUserAccessRoom(r, user?.email));
+
+  // Set default active room based on user access
+  useEffect(() => {
+    if (user && visibleRooms.length > 0) {
+      if (!activeRoom || !visibleRooms.some((r) => r.id === activeRoom.id)) {
+        setActiveRoom(visibleRooms[0]);
+      }
+    } else if (visibleRooms.length === 0) {
+      setActiveRoom(null);
+    }
+  }, [user, visibleRooms, activeRoom]);
 
   // Helper to resolve a message's room_id with local fallback persistence
   const getMessageRoomId = (msg: Message): string => {
@@ -211,7 +229,7 @@ export default function ChatPage() {
     } catch {
       // Fallback
     }
-    return 'general';
+    return '';
   };
 
   // Smart deduplication helper matching IDs or User+Content+Timeframe
@@ -251,12 +269,13 @@ export default function ChatPage() {
       setDisplayName(name);
       setEditNameInput(name);
 
-      // Verify active room access, fallback to general if not allowed
-      if (!canUserAccessRoom(activeRoom, currentUser.email)) {
-        setActiveRoom(INITIAL_DEFAULT_ROOMS[0]);
+      if (!activeRoom) {
+        setMessages([]);
+        setLoading(false);
+        return;
       }
 
-      // Fetch messages for active room with robust room_id checking
+      // Fetch messages for active room
       const { data, error } = await supabase
         .from('messages')
         .select('*')
@@ -288,7 +307,7 @@ export default function ChatPage() {
             const newMessage = payload.new as Message;
             const msgRoomId = getMessageRoomId(newMessage);
 
-            if (msgRoomId === activeRoom.id) {
+            if (activeRoom && msgRoomId === activeRoom.id) {
               setMessages((prev) => {
                 const existingIndex = prev.findIndex((m) => isSameMessage(m, newMessage));
                 if (existingIndex !== -1) {
@@ -344,8 +363,10 @@ export default function ChatPage() {
     }
   };
 
-  // Fetch Room Members when members modal is opened
+  // Fetch Room Members list when member modal is opened
   const fetchRoomMembers = async () => {
+    if (!activeRoom) return;
+
     try {
       const { data, error } = await supabase
         .from('room_members')
@@ -355,12 +376,19 @@ export default function ChatPage() {
       if (!error && data && data.length > 0) {
         setRoomMembers(data as RoomMember[]);
       } else {
-        const allowed = activeRoom.allowed_emails || [MAIN_SUPER_ADMIN];
-        const defaultList: RoomMember[] = allowed.map((e) => ({
-          room_id: activeRoom.id,
-          user_email: e,
-          role: isSystemAdmin(e) ? 'super_admin' : 'member',
-        }));
+        const allowed = activeRoom.allowed_emails || [activeRoom.created_by];
+        const defaultList: RoomMember[] = allowed.map((emailStr) => {
+          let role: 'owner' | 'vice_admin' | 'member' = 'member';
+          if (emailStr.toLowerCase() === activeRoom.created_by.toLowerCase()) role = 'owner';
+          else if ((activeRoom.vice_admins || []).some((v) => v.toLowerCase() === emailStr.toLowerCase()))
+            role = 'vice_admin';
+
+          return {
+            room_id: activeRoom.id,
+            user_email: emailStr,
+            role,
+          };
+        });
 
         setRoomMembers(defaultList);
       }
@@ -368,26 +396,27 @@ export default function ChatPage() {
       setRoomMembers([
         {
           room_id: activeRoom.id,
-          user_email: MAIN_SUPER_ADMIN,
-          role: 'super_admin',
+          user_email: activeRoom.created_by,
+          role: 'owner',
         },
       ]);
     }
   };
 
   const handleOpenMembersModal = () => {
+    if (!activeRoom) return;
     setShowMembersModal(true);
     fetchRoomMembers();
   };
 
+  // Add new member to room (Allowed for Admin & Vice Admin)
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMemberEmail.trim()) return;
+    if (!newMemberEmail.trim() || !activeRoom) return;
 
     const emailToAdd = newMemberEmail.trim().toLowerCase();
     setMemberActionLoading(true);
 
-    // Update room allowed_emails array
     const updatedRooms = rooms.map((r) => {
       if (r.id === activeRoom.id) {
         const existingAllowed = r.allowed_emails || [];
@@ -400,7 +429,6 @@ export default function ChatPage() {
 
     updateRoomsState(updatedRooms);
 
-    // Optimistically update UI local state instantly
     setRoomMembers((prev) => {
       if (prev.some((m) => m.user_email.toLowerCase() === emailToAdd)) return prev;
       return [...prev, { room_id: activeRoom.id, user_email: emailToAdd, role: 'member' }];
@@ -420,22 +448,65 @@ export default function ChatPage() {
     }
   };
 
-  const handleRemoveMember = async (emailToRemove: string) => {
-    if (!confirm(`Bạn có chắc muốn mời ${emailToRemove} ra khỏi phòng?`)) return;
+  // Assign or Remove Vice Admin (Phó Nhóm) - ONLY Trưởng Nhóm or Super Admin
+  const handleToggleViceAdmin = (targetEmail: string, currentRole: string) => {
+    if (!activeRoom) return;
 
-    // Remove from room allowed_emails array
+    const targetLower = targetEmail.toLowerCase();
+    const isPromoting = currentRole !== 'vice_admin';
+
+    const updatedRooms = rooms.map((r) => {
+      if (r.id === activeRoom.id) {
+        const currentVice = r.vice_admins || [];
+        let newViceList: string[];
+        if (isPromoting) {
+          newViceList = [...currentVice, targetLower];
+        } else {
+          newViceList = currentVice.filter((v) => v.toLowerCase() !== targetLower);
+        }
+        return { ...r, vice_admins: newViceList };
+      }
+      return r;
+    });
+
+    updateRoomsState(updatedRooms);
+
+    setRoomMembers((prev) =>
+      prev.map((m) => {
+        if (m.user_email.toLowerCase() === targetLower) {
+          return { ...m, role: isPromoting ? 'vice_admin' : 'member' };
+        }
+        return m;
+      })
+    );
+
+    alert(
+      isPromoting
+        ? `Đã bổ nhiệm ${targetEmail} làm Phó Nhóm!`
+        : `Đã hủy quyền Phó Nhóm của ${targetEmail}!`
+    );
+  };
+
+  // Remove member from group
+  const handleRemoveMember = async (emailToRemove: string) => {
+    if (!activeRoom) return;
+    if (!confirm(`Bạn có chắc muốn mời ${emailToRemove} ra khỏi nhóm?`)) return;
+
+    const targetLower = emailToRemove.toLowerCase();
+
     const updatedRooms = rooms.map((r) => {
       if (r.id === activeRoom.id) {
         return {
           ...r,
-          allowed_emails: (r.allowed_emails || []).filter((e) => e.toLowerCase() !== emailToRemove.toLowerCase()),
+          allowed_emails: (r.allowed_emails || []).filter((e) => e.toLowerCase() !== targetLower),
+          vice_admins: (r.vice_admins || []).filter((v) => v.toLowerCase() !== targetLower),
         };
       }
       return r;
     });
 
     updateRoomsState(updatedRooms);
-    setRoomMembers((prev) => prev.filter((m) => m.user_email.toLowerCase() !== emailToRemove.toLowerCase()));
+    setRoomMembers((prev) => prev.filter((m) => m.user_email.toLowerCase() !== targetLower));
 
     try {
       await supabase
@@ -448,6 +519,7 @@ export default function ChatPage() {
     }
   };
 
+  // Create New Chat Room (BẤT KỲ AI THAM GIA APP CŨNG TẠO ĐƯỢC - Giống Zalo)
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim() || !user) return;
@@ -456,8 +528,10 @@ export default function ChatPage() {
     const newRoom: ChatRoom = {
       id: roomId,
       name: newRoomName.trim(),
+      created_by: user.email || GLOBAL_SUPER_ADMIN,
       isPrivate: true,
-      allowed_emails: [user.email || MAIN_SUPER_ADMIN, MAIN_SUPER_ADMIN],
+      vice_admins: [],
+      allowed_emails: [user.email || GLOBAL_SUPER_ADMIN, GLOBAL_SUPER_ADMIN],
     };
 
     const updated = [...rooms, newRoom];
@@ -468,12 +542,9 @@ export default function ChatPage() {
     setShowMobileSidebar(false);
   };
 
-  // Handle Delete Chat Room (Admin action)
+  // Handle Delete Chat Room / Disband Group (ONLY Trưởng nhóm or Super Admin)
   const handleDeleteRoom = async () => {
-    if (activeRoom.id === 'general') {
-      alert('Không thể xóa Phòng Chat Chung mặc định!');
-      return;
-    }
+    if (!activeRoom) return;
 
     setDeleteRoomLoading(true);
 
@@ -486,8 +557,8 @@ export default function ChatPage() {
       const filteredRooms = rooms.filter((r) => r.id !== activeRoom.id);
       updateRoomsState(filteredRooms);
 
-      const generalRoom = filteredRooms.find((r) => r.id === 'general') || INITIAL_DEFAULT_ROOMS[0];
-      setActiveRoom(generalRoom);
+      const nextRoom = filteredRooms.find((r) => canUserAccessRoom(r, user?.email)) || null;
+      setActiveRoom(nextRoom);
 
       setDeleteRoomLoading(false);
       setShowDeleteRoomModal(false);
@@ -570,7 +641,7 @@ export default function ChatPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!inputText.trim() && !selectedFile) || sending || !user) return;
+    if (!activeRoom || (!inputText.trim() && !selectedFile) || sending || !user) return;
 
     setSending(true);
     let uploadedFileUrl: string | null = null;
@@ -713,10 +784,12 @@ export default function ChatPage() {
             <div>
               <h2 className="font-bold text-sm text-white flex items-center gap-1">
                 <span>Fica Holding Chat</span>
-                {isCurrentAdmin && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                {isGlobalSuperAdmin(user?.email) && (
+                  <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                )}
               </h2>
               <p className="text-[10px] text-slate-400">
-                {isCurrentAdmin ? 'Admin Hệ Thống' : 'Thành viên'}
+                {isGlobalSuperAdmin(user?.email) ? 'Super Admin Hệ Thống' : 'Phòng chat công ty'}
               </p>
             </div>
           </div>
@@ -728,52 +801,68 @@ export default function ChatPage() {
           </button>
         </div>
 
-        {/* Create Room Button - ONLY Visible to System Admins */}
-        {isCurrentAdmin && (
-          <div className="p-3">
-            <button
-              onClick={() => setShowCreateRoomModal(true)}
-              className="w-full py-2.5 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tạo phòng chat mới</span>
-            </button>
-          </div>
-        )}
+        {/* Create Room Button - Available to ALL users (Zalo model) */}
+        <div className="p-3">
+          <button
+            onClick={() => setShowCreateRoomModal(true)}
+            className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tạo phòng chat mới</span>
+          </button>
+        </div>
 
         {/* Rooms Scroll List strictly filtered for allowed rooms only */}
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
           <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            Phòng trò chuyện ({visibleRooms.length})
+            Phòng của tôi ({visibleRooms.length})
           </p>
-          {visibleRooms.map((room) => {
-            const isActive = room.id === activeRoom.id;
+          {visibleRooms.length === 0 ? (
+            <div className="p-4 text-center text-xs text-slate-500 space-y-1">
+              <p>Chưa tham gia phòng nào.</p>
+              <p className="text-[11px] text-slate-600">Bấm nút trên để tạo phòng mới!</p>
+            </div>
+          ) : (
+            visibleRooms.map((room) => {
+              const isActive = activeRoom && room.id === activeRoom.id;
+              const isOwnerOfRoom = isRoomOwner(room, user?.email);
+              const isViceOfRoom = isViceAdmin(room, user?.email);
 
-            return (
-              <button
-                key={room.id}
-                onClick={() => {
-                  setActiveRoom(room);
-                  setShowMobileSidebar(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
-                  isActive
-                    ? 'bg-indigo-600 text-white shadow-md'
-                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  {room.isPrivate ? (
+              return (
+                <button
+                  key={room.id}
+                  onClick={() => {
+                    setActiveRoom(room);
+                    setShowMobileSidebar(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
+                    isActive
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
                     <Lock className={`w-4 h-4 ${isActive ? 'text-white' : 'text-indigo-400'}`} />
-                  ) : (
-                    <Hash className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  )}
-                  <span className="truncate">{room.name}</span>
-                </div>
-                {isActive && <ChevronRight className="w-4 h-4 text-white/80" />}
-              </button>
-            );
-          })}
+                    <span className="truncate">{room.name}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {isOwnerOfRoom && (
+                      <span className="p-0.5 text-amber-400" title="Trưởng nhóm">
+                        <Crown className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    {isViceOfRoom && (
+                      <span className="p-0.5 text-sky-400" title="Phó nhóm">
+                        <Award className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    {isActive && <ChevronRight className="w-4 h-4 text-white/80" />}
+                  </div>
+                </button>
+              );
+            })
+          )}
         </div>
 
         {/* User Info Bottom Footer */}
@@ -789,7 +878,9 @@ export default function ChatPage() {
             <div className="truncate min-w-0">
               <p className="text-xs font-semibold text-white truncate flex items-center gap-1">
                 <span>{displayName}</span>
-                {isCurrentAdmin && <Crown className="w-3 h-3 text-amber-400 shrink-0" />}
+                {isGlobalSuperAdmin(user?.email) && (
+                  <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+                )}
               </p>
               <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
             </div>
@@ -799,290 +890,321 @@ export default function ChatPage() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col h-full min-w-0 bg-slate-950">
-        {/* Main Header */}
-        <header className="flex items-center justify-between px-4 sm:px-6 py-4 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setShowMobileSidebar(true)}
-              className="md:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-
-            <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-              {activeRoom.isPrivate ? (
-                <Lock className="w-5 h-5" />
-              ) : (
-                <MessageSquare className="w-5 h-5" />
-              )}
-            </div>
-            <div>
-              <h1 className="font-bold text-base sm:text-lg text-white flex items-center gap-2">
-                <span>{activeRoom.name}</span>
-                {activeRoom.isPrivate && (
-                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
-                    Phòng riêng
-                  </span>
-                )}
-              </h1>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Realtime Active
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Admin Delete Room Button (Visible for non-general rooms and ONLY for Admin) */}
-            {activeRoom.id !== 'general' && isCurrentAdmin && (
-              <button
-                onClick={() => setShowDeleteRoomModal(true)}
-                className="p-2 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 border border-transparent rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
-                title="Xóa phòng chat này (Dành cho Admin)"
-              >
-                <Trash2 className="w-4 h-4 text-red-400" />
-                <span className="hidden sm:inline">Xóa phòng</span>
-              </button>
-            )}
-
-            {/* Member Management Button */}
-            <button
-              onClick={handleOpenMembersModal}
-              className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
-              title="Quản lý thành viên & Phân quyền Admin"
-            >
-              <Users className="w-4 h-4 text-indigo-400" />
-              <span className="hidden sm:inline">Thành viên</span>
-            </button>
-
-            {/* Change Password Button */}
-            <button
-              onClick={() => {
-                setShowPasswordModal(true);
-                setPasswordError(null);
-                setPasswordSuccess(null);
-              }}
-              className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
-              title="Thay đổi mật khẩu"
-            >
-              <Key className="w-4 h-4 text-indigo-400" />
-              <span className="hidden sm:inline">Đổi mật khẩu</span>
-            </button>
-
-            {/* Logout Button */}
-            <button
-              onClick={handleLogout}
-              className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
-              title="Đăng xuất"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Đăng xuất</span>
-            </button>
-          </div>
-        </header>
-
-        {/* PWA Mobile Install Banner */}
-        <InstallPWA />
-
-        {/* Messages Feed */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-          {loading ? (
-            <div className="h-full flex items-center justify-center text-slate-400 gap-2">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-              <span className="text-xs">Đang tải tin nhắn {activeRoom.name}...</span>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-2 py-12">
-              <MessageSquare className="w-12 h-12 stroke-[1.5]" />
-              <p className="text-sm font-medium text-slate-400">
-                Chưa có tin nhắn nào trong {activeRoom.name}.
-              </p>
-              <p className="text-xs text-slate-600">Hãy bắt đầu cuộc trò chuyện ngay!</p>
-            </div>
-          ) : (
-            messages.map((msg) => {
-              const isMe = msg.user_id === user?.id;
-              const senderDisplayName = msg.user_name || msg.user_email?.split('@')[0] || msg.user_email;
-
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}
+        {activeRoom ? (
+          <>
+            {/* Main Header */}
+            <header className="flex items-center justify-between px-4 sm:px-6 py-4 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md sticky top-0 z-10">
+              <div className="flex items-center gap-3">
+                {/* Mobile Menu Button */}
+                <button
+                  onClick={() => setShowMobileSidebar(true)}
+                  className="md:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
                 >
-                  <span className="text-[11px] text-slate-400 px-1">
-                    <strong className="font-semibold text-slate-300">{isMe ? 'Bạn' : senderDisplayName}</strong>{' '}
-                    <span className="text-slate-500">({msg.user_email})</span> •{' '}
-                    {new Date(msg.created_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
+                  <Menu className="w-5 h-5" />
+                </button>
 
-                  <div
-                    className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl shadow-md space-y-2 ${
-                      isMe
-                        ? 'bg-indigo-600 text-white rounded-br-none'
-                        : 'bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none'
-                    }`}
+                <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h1 className="font-bold text-base sm:text-lg text-white flex items-center gap-2">
+                    <span>{activeRoom.name}</span>
+                    {isRoomOwner(activeRoom, user?.email) ? (
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                        <Crown className="w-3 h-3 text-amber-400" />
+                        Trưởng nhóm
+                      </span>
+                    ) : isViceAdmin(activeRoom, user?.email) ? (
+                      <span className="text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                        <Award className="w-3 h-3 text-sky-400" />
+                        Phó nhóm
+                      </span>
+                    ) : (
+                      <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
+                        Phòng riêng
+                      </span>
+                    )}
+                  </h1>
+                  <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Realtime Active
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 sm:gap-3">
+                {/* Delete Room / Disband Group Button (ONLY Trưởng nhóm or Super Admin) */}
+                {canDeleteRoom(activeRoom, user?.email) && (
+                  <button
+                    onClick={() => setShowDeleteRoomModal(true)}
+                    className="p-2 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 border border-transparent rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
+                    title="Giải tán nhóm (Chỉ Trưởng nhóm)"
                   >
-                    {/* Attached Image */}
-                    {msg.file_url && msg.file_type === 'image' && (
-                      <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={msg.file_url}
-                          alt="Đính kèm"
-                          className="max-h-64 max-w-full object-cover rounded-xl hover:scale-105 transition duration-300"
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <span className="hidden sm:inline">Giải tán nhóm</span>
+                  </button>
+                )}
 
-                    {/* Attached File */}
-                    {msg.file_url && msg.file_type === 'file' && (
-                      <a
-                        href={msg.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-3 p-2.5 bg-black/20 rounded-xl hover:bg-black/30 transition border border-white/10"
+                {/* Member Management Button */}
+                <button
+                  onClick={handleOpenMembersModal}
+                  className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
+                  title="Thành viên & Phó nhóm"
+                >
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span className="hidden sm:inline">Thành viên</span>
+                </button>
+
+                {/* Change Password Button */}
+                <button
+                  onClick={() => {
+                    setShowPasswordModal(true);
+                    setPasswordError(null);
+                    setPasswordSuccess(null);
+                  }}
+                  className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
+                  title="Thay đổi mật khẩu"
+                >
+                  <Key className="w-4 h-4 text-indigo-400" />
+                  <span className="hidden sm:inline">Đổi mật khẩu</span>
+                </button>
+
+                {/* Logout Button */}
+                <button
+                  onClick={handleLogout}
+                  className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
+                  title="Đăng xuất"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">Đăng xuất</span>
+                </button>
+              </div>
+            </header>
+
+            {/* PWA Mobile Install Banner */}
+            <InstallPWA />
+
+            {/* Messages Feed */}
+            <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {loading ? (
+                <div className="h-full flex items-center justify-center text-slate-400 gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                  <span className="text-xs">Đang tải tin nhắn {activeRoom.name}...</span>
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-2 py-12">
+                  <MessageSquare className="w-12 h-12 stroke-[1.5]" />
+                  <p className="text-sm font-medium text-slate-400">
+                    Chưa có tin nhắn nào trong {activeRoom.name}.
+                  </p>
+                  <p className="text-xs text-slate-600">Hãy bắt đầu cuộc trò chuyện ngay!</p>
+                </div>
+              ) : (
+                messages.map((msg) => {
+                  const isMe = msg.user_id === user?.id;
+                  const senderDisplayName =
+                    msg.user_name || msg.user_email?.split('@')[0] || msg.user_email;
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}
+                    >
+                      <span className="text-[11px] text-slate-400 px-1">
+                        <strong className="font-semibold text-slate-300">
+                          {isMe ? 'Bạn' : senderDisplayName}
+                        </strong>{' '}
+                        <span className="text-slate-500">({msg.user_email})</span> •{' '}
+                        {new Date(msg.created_at).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+
+                      <div
+                        className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl shadow-md space-y-2 ${
+                          isMe
+                            ? 'bg-indigo-600 text-white rounded-br-none'
+                            : 'bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none'
+                        }`}
                       >
-                        <FileText className="w-6 h-6 text-indigo-300 shrink-0" />
-                        <div className="flex-1 min-w-0 text-xs">
-                          <p className="font-medium truncate text-white">Tải về file đính kèm</p>
-                          <p className="text-[10px] opacity-75">Bấm để mở / download</p>
-                        </div>
-                        <Download className="w-4 h-4 shrink-0 opacity-80" />
-                      </a>
-                    )}
+                        {/* Attached Image */}
+                        {msg.file_url && msg.file_type === 'image' && (
+                          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={msg.file_url}
+                              alt="Đính kèm"
+                              className="max-h-64 max-w-full object-cover rounded-xl hover:scale-105 transition duration-300"
+                              loading="lazy"
+                            />
+                          </div>
+                        )}
 
-                    {/* Text Content */}
-                    {msg.content && (
-                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                        {msg.content}
-                      </p>
-                    )}
+                        {/* Attached File */}
+                        {msg.file_url && msg.file_type === 'file' && (
+                          <a
+                            href={msg.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 p-2.5 bg-black/20 rounded-xl hover:bg-black/30 transition border border-white/10"
+                          >
+                            <FileText className="w-6 h-6 text-indigo-300 shrink-0" />
+                            <div className="flex-1 min-w-0 text-xs">
+                              <p className="font-medium truncate text-white">Tải về file đính kèm</p>
+                              <p className="text-[10px] opacity-75">Bấm để mở / download</p>
+                            </div>
+                            <Download className="w-4 h-4 shrink-0 opacity-80" />
+                          </a>
+                        )}
+
+                        {/* Text Content */}
+                        {msg.content && (
+                          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                            {msg.content}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </main>
+
+            {/* Selected Attachment Preview */}
+            {selectedFile && (
+              <div className="px-6 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {fileType === 'image' && filePreview ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={filePreview}
+                      alt="Preview"
+                      className="w-12 h-12 object-cover rounded-lg border border-slate-700"
+                    />
+                  ) : (
+                    <div className="p-2.5 bg-slate-800 rounded-lg text-indigo-400 border border-slate-700">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                  )}
+                  <div className="text-xs">
+                    <p className="font-medium text-slate-200 max-w-[200px] sm:max-w-[300px] truncate">
+                      {selectedFile.name}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {(selectedFile.size / 1024).toFixed(1)} KB
+                    </p>
                   </div>
                 </div>
-              );
-            })
-          )}
-          <div ref={messagesEndRef} />
-        </main>
 
-        {/* Selected Attachment Preview */}
-        {selectedFile && (
-          <div className="px-6 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {fileType === 'image' && filePreview ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={filePreview}
-                  alt="Preview"
-                  className="w-12 h-12 object-cover rounded-lg border border-slate-700"
-                />
-              ) : (
-                <div className="p-2.5 bg-slate-800 rounded-lg text-indigo-400 border border-slate-700">
-                  <FileText className="w-5 h-5" />
-                </div>
-              )}
-              <div className="text-xs">
-                <p className="font-medium text-slate-200 max-w-[200px] sm:max-w-[300px] truncate">
-                  {selectedFile.name}
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  {(selectedFile.size / 1024).toFixed(1)} KB
-                </p>
+                <button
+                  onClick={handleClearFile}
+                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </div>
+            )}
 
+            {/* Emoji Picker Popover */}
+            {showEmoji && (
+              <div className="px-6 py-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 overflow-x-auto">
+                <span className="text-xs text-slate-400 shrink-0 font-medium">Emoji nhanh:</span>
+                {COMMON_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => addEmoji(emoji)}
+                    className="text-xl p-1.5 hover:bg-slate-800 rounded-lg transition shrink-0 hover:scale-125"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Input Area */}
+            <footer className="p-4 bg-slate-900 border-t border-slate-800">
+              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                {/* File Upload Hidden Input */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  accept="image/*,.pdf,.doc,.docx,.zip,.txt"
+                />
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition"
+                    title="Đính kèm file hoặc hình ảnh"
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowEmoji((prev) => !prev)}
+                    className={`p-2.5 rounded-xl transition ${
+                      showEmoji
+                        ? 'text-indigo-400 bg-indigo-600/20'
+                        : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800'
+                    }`}
+                    title="Chọn Emoji"
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder={`Gửi tin nhắn vào ${activeRoom.name}...`}
+                  className="flex-1 px-4 py-2.5 bg-slate-800/90 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                />
+
+                <button
+                  type="submit"
+                  disabled={sending || (!inputText.trim() && !selectedFile)}
+                  className="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {sending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </button>
+              </form>
+            </footer>
+          </>
+        ) : (
+          /* Empty state when user is not in any room */
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-950">
+            <div className="p-4 bg-indigo-600/10 text-indigo-400 rounded-2xl border border-indigo-500/20 mb-4">
+              <MessageSquare className="w-12 h-12 stroke-[1.5]" />
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">Chưa chọn phòng chat nào</h2>
+            <p className="text-xs text-slate-400 max-w-md leading-relaxed mb-6">
+              Bạn chưa chọn phòng chat hoặc chưa được Trưởng nhóm thêm vào nhóm nào. Bạn có thể tự tạo phòng chat mới bằng nút bên dưới!
+            </p>
             <button
-              onClick={handleClearFile}
-              className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              onClick={() => setShowCreateRoomModal(true)}
+              className="py-3 px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition flex items-center gap-2"
             >
-              <X className="w-5 h-5" />
+              <Plus className="w-4 h-4" />
+              <span>Tạo phòng chat mới ngay</span>
             </button>
           </div>
         )}
-
-        {/* Emoji Picker Popover */}
-        {showEmoji && (
-          <div className="px-6 py-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 overflow-x-auto">
-            <span className="text-xs text-slate-400 shrink-0 font-medium">Emoji nhanh:</span>
-            {COMMON_EMOJIS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => addEmoji(emoji)}
-                className="text-xl p-1.5 hover:bg-slate-800 rounded-lg transition shrink-0 hover:scale-125"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Input Area */}
-        <footer className="p-4 bg-slate-900 border-t border-slate-800">
-          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            {/* File Upload Hidden Input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              className="hidden"
-              accept="image/*,.pdf,.doc,.docx,.zip,.txt"
-            />
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition"
-                title="Đính kèm file hoặc hình ảnh"
-              >
-                <Paperclip className="w-5 h-5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowEmoji((prev) => !prev)}
-                className={`p-2.5 rounded-xl transition ${
-                  showEmoji
-                    ? 'text-indigo-400 bg-indigo-600/20'
-                    : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800'
-                }`}
-                title="Chọn Emoji"
-              >
-                <Smile className="w-5 h-5" />
-              </button>
-            </div>
-
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={`Gửi tin nhắn vào ${activeRoom.name}...`}
-              className="flex-1 px-4 py-2.5 bg-slate-800/90 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-            />
-
-            <button
-              type="submit"
-              disabled={sending || (!inputText.trim() && !selectedFile)}
-              className="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
-            >
-              {sending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-5 h-5" />
-              )}
-            </button>
-          </form>
-        </footer>
       </div>
 
-      {/* Delete Room Confirmation Modal */}
-      {showDeleteRoomModal && (
+      {/* Delete Room Confirmation Modal (ONLY Trưởng nhóm & Super Admin) */}
+      {showDeleteRoomModal && activeRoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
             <button
@@ -1097,13 +1219,13 @@ export default function ChatPage() {
                 <AlertTriangle className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-lg">Xác nhận xóa phòng chat</h3>
-                <p className="text-xs text-slate-400">Hành động này không thể hoàn tác</p>
+                <h3 className="font-bold text-white text-lg">Xác nhận giải tán nhóm</h3>
+                <p className="text-xs text-slate-400">Hành động dành riêng cho Trưởng nhóm</p>
               </div>
             </div>
 
             <p className="text-sm text-slate-300 leading-relaxed mb-6">
-              Bạn có chắc chắn muốn xóa <strong className="text-white">{activeRoom.name}</strong>? Tất cả tin nhắn và dữ liệu thành viên trong phòng này sẽ bị xóa hoàn toàn.
+              Bạn có chắc chắn muốn giải tán <strong className="text-white">{activeRoom.name}</strong>? Tất cả tin nhắn và danh sách thành viên sẽ bị xóa hoàn toàn.
             </p>
 
             <div className="flex items-center justify-end gap-3">
@@ -1125,7 +1247,7 @@ export default function ChatPage() {
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    <span>Xóa phòng này</span>
+                    <span>Giải tán nhóm này</span>
                   </>
                 )}
               </button>
@@ -1214,8 +1336,8 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Member Management Modal */}
-      {showMembersModal && (
+      {/* Member Management & Vice Admin Modal (Chuẩn Zalo) */}
+      {showMembersModal && activeRoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button
@@ -1235,54 +1357,15 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* System Admin Assignment Section (Visible ONLY for MAIN_SUPER_ADMIN) */}
-            {user?.email?.toLowerCase() === MAIN_SUPER_ADMIN.toLowerCase() && (
-              <div className="mb-6 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-3">
-                <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
-                  <Crown className="w-4 h-4 text-amber-400" />
-                  <span>Phân quyền Co-Admin Hệ Thống (Tối đa 2 Admins)</span>
-                </div>
-
-                {secondAdminEmail ? (
-                  <div className="flex items-center justify-between text-xs bg-slate-900/80 p-2 rounded-lg border border-amber-500/20">
-                    <span className="text-slate-200 truncate">{secondAdminEmail}</span>
-                    <button
-                      onClick={handleRemoveSecondAdmin}
-                      className="text-red-400 hover:text-red-300 text-[11px] font-medium underline"
-                    >
-                      Hủy quyền Admin
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleAssignSecondAdmin} className="flex gap-2">
-                    <input
-                      type="email"
-                      required
-                      value={newCoAdminInput}
-                      onChange={(e) => setNewCoAdminInput(e.target.value)}
-                      placeholder="Nhập email làm Admin thứ 2..."
-                      className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs"
-                    />
-                    <button
-                      type="submit"
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shrink-0"
-                    >
-                      Gán Admin
-                    </button>
-                  </form>
-                )}
-              </div>
-            )}
-
-            {/* Add Member Input Form (Visible ONLY to Admins) */}
-            {isCurrentAdmin ? (
+            {/* Add Member Input Form (Allowed for Trưởng Nhóm, Phó Nhóm, and Super Admin) */}
+            {canManageMembers(activeRoom, user?.email) ? (
               <form onSubmit={handleAddMember} className="flex gap-2 mb-5">
                 <input
                   type="email"
                   required
                   value={newMemberEmail}
                   onChange={(e) => setNewMemberEmail(e.target.value)}
-                  placeholder="Nhập email nhân viên được phép vào phòng..."
+                  placeholder="Nhập email nhân viên muốn thêm..."
                   className="flex-1 px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <button
@@ -1296,44 +1379,83 @@ export default function ChatPage() {
               </form>
             ) : (
               <p className="text-xs text-slate-400 mb-4 italic">
-                Chỉ Admin mới có quyền thêm hoặc xóa thành viên khỏi phòng này.
+                Chỉ Trưởng nhóm và Phó nhóm mới có quyền thêm thành viên vào phòng này.
               </p>
             )}
 
-            {/* Members List */}
+            {/* Members List with Role Badges and Vice Admin Appointment Controls */}
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
               <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                Thành viên có quyền vào phòng ({roomMembers.length})
+                Danh sách thành viên ({roomMembers.length})
               </p>
 
               {roomMembers.map((member, index) => {
-                const isMemberAdmin = isSystemAdmin(member.user_email);
+                const targetEmailLower = member.user_email.toLowerCase();
+                const isOwner = targetEmailLower === activeRoom.created_by.toLowerCase();
+                const isVice = (activeRoom.vice_admins || []).some(
+                  (v) => v.toLowerCase() === targetEmailLower
+                );
+                const isSuper = isGlobalSuperAdmin(targetEmailLower);
+
+                const currentCanManageTarget =
+                  isRoomOwner(activeRoom, user?.email) ||
+                  (isViceAdmin(activeRoom, user?.email) && !isOwner && !isVice);
 
                 return (
                   <div
                     key={index}
                     className="flex items-center justify-between p-2.5 bg-slate-800/60 rounded-xl border border-slate-700/50 text-xs"
                   >
-                    <div className="flex items-center gap-2 truncate">
+                    <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                       <User className="w-4 h-4 text-indigo-400 shrink-0" />
                       <span className="text-slate-200 truncate">{member.user_email}</span>
-                      {isMemberAdmin && (
-                        <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">
+
+                      {/* Badges */}
+                      {isOwner && (
+                        <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold shrink-0">
                           <Crown className="w-3 h-3 text-amber-400" />
-                          Admin
+                          Trưởng nhóm
+                        </span>
+                      )}
+
+                      {isVice && !isOwner && (
+                        <span className="flex items-center gap-1 text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full font-semibold shrink-0">
+                          <Award className="w-3 h-3 text-sky-400" />
+                          Phó nhóm
                         </span>
                       )}
                     </div>
 
-                    {isCurrentAdmin && !isMemberAdmin && (
-                      <button
-                        onClick={() => handleRemoveMember(member.user_email)}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700/60 rounded-lg transition"
-                        title="Mời ra khỏi phòng"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {/* Toggle Vice Admin Button (ONLY Trưởng Nhóm or Super Admin) */}
+                      {isRoomOwner(activeRoom, user?.email) && !isOwner && !isSuper && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleToggleViceAdmin(member.user_email, isVice ? 'vice_admin' : 'member')
+                          }
+                          className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition ${
+                            isVice
+                              ? 'bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20'
+                              : 'bg-sky-500/10 text-sky-300 border-sky-500/30 hover:bg-sky-500/20'
+                          }`}
+                          title={isVice ? 'Hủy quyền Phó nhóm' : 'Bổ nhiệm Phó nhóm'}
+                        >
+                          {isVice ? 'Hủy Phó nhóm' : 'Bổ nhiệm Phó nhóm'}
+                        </button>
+                      )}
+
+                      {/* Remove Member Button */}
+                      {currentCanManageTarget && !isOwner && !isSuper && (
+                        <button
+                          onClick={() => handleRemoveMember(member.user_email)}
+                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700/60 rounded-lg transition"
+                          title="Mời ra khỏi nhóm"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -1358,22 +1480,22 @@ export default function ChatPage() {
                 <Plus className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-lg">Tạo phòng chat riêng</h3>
-                <p className="text-xs text-slate-400">Tạo không gian trò chuyện riêng cho nhóm/phòng ban</p>
+                <h3 className="font-bold text-white text-lg">Tạo phòng chat mới</h3>
+                <p className="text-xs text-slate-400">Bạn sẽ là Trưởng nhóm của phòng chat này</p>
               </div>
             </div>
 
             <form onSubmit={handleCreateRoom} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
-                  Tên phòng chat
+                  Tên phòng chat / Nhóm
                 </label>
                 <input
                   type="text"
                   required
                   value={newRoomName}
                   onChange={(e) => setNewRoomName(e.target.value)}
-                  placeholder="Ví dụ: Team Dự Án A, Phòng Sản Xuất..."
+                  placeholder="Ví dụ: Team Dự Án A, Nhóm Thi Thiết Kế..."
                   className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                 />
               </div>
@@ -1391,7 +1513,7 @@ export default function ChatPage() {
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Tạo phòng</span>
+                  <span>Tạo phòng ngay</span>
                 </button>
               </div>
             </form>

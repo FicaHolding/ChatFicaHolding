@@ -13,14 +13,16 @@ export interface Message {
 export interface ChatRoom {
   id: string;
   name: string;
+  created_by: string; // Email Trưởng nhóm (Admin lập phòng)
   isPrivate?: boolean;
-  allowed_emails?: string[];
+  vice_admins?: string[]; // Danh sách Email Phó nhóm
+  allowed_emails?: string[]; // Danh sách Email thành viên trong nhóm
 }
 
 export interface RoomMember {
   id?: string;
   room_id: string;
   user_email: string;
-  role: 'super_admin' | 'admin' | 'member';
+  role: 'owner' | 'vice_admin' | 'member'; // 'owner': Trưởng nhóm, 'vice_admin': Phó nhóm, 'member': Thành viên
   created_at?: string;
 }
