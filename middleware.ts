@@ -1,18 +1,16 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+  let supabaseResponse = NextResponse.next({
+    request,
   });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    return response;
+    return supabaseResponse;
   }
 
   try {
@@ -21,13 +19,13 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({
+          supabaseResponse = NextResponse.next({
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
+            supabaseResponse.cookies.set({ name, value, ...options })
           );
         },
       },
@@ -39,7 +37,6 @@ export async function middleware(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
 
-    // Protected route check
     if (!user && pathname.startsWith('/chat')) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
@@ -51,11 +48,11 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/chat';
       return NextResponse.redirect(url);
     }
-  } catch (e: unknown) {
-    console.error('Middleware error:', e);
+  } catch (e) {
+    console.error('Middleware execution error:', e);
   }
 
-  return response;
+  return supabaseResponse;
 }
 
 export const config = {
