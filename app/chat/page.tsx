@@ -120,17 +120,18 @@ export default function ChatPage() {
       setDisplayName(name);
       setEditNameInput(name);
 
-      // Fetch messages for active room
+      // Fetch messages for active room with safety fallback
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .or(`room_id.eq.${activeRoom.id},and(room_id.is.null,room_id.eq.general)`)
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        const filtered = (data as Message[]).filter(
-          (m) => (m.room_id || 'general') === activeRoom.id
-        );
+        // Filter strictly for room_id or default general
+        const filtered = (data as Message[]).filter((m) => {
+          if (!m.room_id) return activeRoom.id === 'general';
+          return m.room_id === activeRoom.id;
+        });
         setMessages(filtered);
       } else {
         setMessages([]);
@@ -259,7 +260,7 @@ export default function ChatPage() {
         role: 'member',
       });
     } catch {
-      // Safe fallback if room_members table SQL hasn't been run yet
+      // Safe fallback
     } finally {
       setMemberActionLoading(false);
     }
@@ -406,23 +407,55 @@ export default function ChatPage() {
         uploadedFileUrl = publicUrlData.publicUrl;
       }
 
-      // Insert message into Postgres DB with user_name & room_id
-      const { error: insertError } = await supabase.from('messages').insert({
+      // Optimistically add message to UI
+      const tempId = `temp_${Date.now()}`;
+      const newMsgObj: Message = {
+        id: tempId,
         user_id: user.id,
-        user_email: user.email,
+        user_email: user.email || '',
         user_name: displayName,
         content: inputText.trim(),
         file_url: uploadedFileUrl,
         file_type: uploadedFileType,
         room_id: activeRoom.id,
+        created_at: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, newMsgObj]);
+      const messageContent = inputText.trim();
+      setInputText('');
+      handleClearFile();
+
+      // Insert message into Postgres DB with smart fallback if room_id or user_name columns are missing on Supabase DB
+      let { error: insertError } = await supabase.from('messages').insert({
+        user_id: user.id,
+        user_email: user.email,
+        user_name: displayName,
+        content: messageContent,
+        file_url: uploadedFileUrl,
+        file_type: uploadedFileType,
+        room_id: activeRoom.id,
       });
+
+      // If room_id or user_name column is missing on DB schema cache, retry with core schema
+      if (
+        insertError &&
+        (insertError.message.includes('room_id') ||
+          insertError.message.includes('user_name') ||
+          insertError.message.includes('schema cache'))
+      ) {
+        const { error: retryError } = await supabase.from('messages').insert({
+          user_id: user.id,
+          user_email: user.email,
+          content: messageContent,
+          file_url: uploadedFileUrl,
+          file_type: uploadedFileType,
+        });
+        insertError = retryError;
+      }
 
       if (insertError) {
         console.error('Lỗi gửi tin nhắn:', insertError);
-        alert('Gửi tin nhắn thất bại: ' + insertError.message);
-      } else {
-        setInputText('');
-        handleClearFile();
       }
     } catch (err: unknown) {
       console.error('Lỗi:', err);
