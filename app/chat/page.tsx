@@ -126,6 +126,21 @@ export default function ChatPage() {
     }
   };
 
+  // Helper to resolve a message's room_id with local fallback persistence
+  const getMessageRoomId = (msg: Message): string => {
+    if (msg.room_id) return msg.room_id;
+    try {
+      const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
+      if (localRoom) return localRoom;
+      // Check content match in local memory
+      const matchByContent = localStorage.getItem(`fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`);
+      if (matchByContent) return matchByContent;
+    } catch {
+      // Fallback
+    }
+    return 'general';
+  };
+
   // Initial load: User session & Fetch existing messages for activeRoom & Setup Realtime
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -150,17 +165,16 @@ export default function ChatPage() {
       setDisplayName(name);
       setEditNameInput(name);
 
-      // Fetch messages for active room with safety fallback
+      // Fetch messages for active room with robust room_id checking
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        // Filter strictly for room_id or default general
         const filtered = (data as Message[]).filter((m) => {
-          if (!m.room_id) return activeRoom.id === 'general';
-          return m.room_id === activeRoom.id;
+          const roomOfMsg = getMessageRoomId(m);
+          return roomOfMsg === activeRoom.id;
         });
         setMessages(filtered);
       } else {
@@ -181,12 +195,12 @@ export default function ChatPage() {
           },
           (payload) => {
             const newMessage = payload.new as Message;
-            const msgRoomId = newMessage.room_id || 'general';
+            const msgRoomId = getMessageRoomId(newMessage);
 
             if (msgRoomId === activeRoom.id) {
               setMessages((prev) => {
                 if (prev.some((m) => m.id === newMessage.id)) return prev;
-                return [...prev, newMessage];
+                return [...prev, { ...newMessage, room_id: msgRoomId }];
               });
             }
           }
@@ -442,6 +456,8 @@ export default function ChatPage() {
     setSending(true);
     let uploadedFileUrl: string | null = null;
     const uploadedFileType: 'image' | 'file' | null = fileType;
+    const currentRoomId = activeRoom.id;
+    const messageContent = inputText.trim();
 
     try {
       // Handle file upload if any
@@ -468,35 +484,47 @@ export default function ChatPage() {
         uploadedFileUrl = publicUrlData.publicUrl;
       }
 
-      // Optimistically add message to UI
+      // Optimistically add message to UI bound strictly to currentRoomId
       const tempId = `temp_${Date.now()}`;
       const newMsgObj: Message = {
         id: tempId,
         user_id: user.id,
         user_email: user.email || '',
         user_name: displayName,
-        content: inputText.trim(),
-        file_url: uploadedFileUrl,
-        file_type: uploadedFileType,
-        room_id: activeRoom.id,
-        created_at: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, newMsgObj]);
-      const messageContent = inputText.trim();
-      setInputText('');
-      handleClearFile();
-
-      // Insert message into Postgres DB with smart fallback if room_id or user_name columns are missing on Supabase DB
-      let { error: insertError } = await supabase.from('messages').insert({
-        user_id: user.id,
-        user_email: user.email,
-        user_name: displayName,
         content: messageContent,
         file_url: uploadedFileUrl,
         file_type: uploadedFileType,
-        room_id: activeRoom.id,
-      });
+        room_id: currentRoomId,
+        created_at: new Date().toISOString(),
+      };
+
+      // Save room binding locally to guarantee message never leaks to General Room
+      try {
+        localStorage.setItem(`fica_msg_room_${tempId}`, currentRoomId);
+        if (messageContent) {
+          localStorage.setItem(`fica_msg_content_${encodeURIComponent(messageContent.substring(0, 30))}`, currentRoomId);
+        }
+      } catch {
+        // Ignore local storage errors
+      }
+
+      setMessages((prev) => [...prev, newMsgObj]);
+      setInputText('');
+      handleClearFile();
+
+      // Insert message into Postgres DB with currentRoomId
+      let { data: insertedData, error: insertError } = await supabase
+        .from('messages')
+        .insert({
+          user_id: user.id,
+          user_email: user.email,
+          user_name: displayName,
+          content: messageContent,
+          file_url: uploadedFileUrl,
+          file_type: uploadedFileType,
+          room_id: currentRoomId,
+        })
+        .select();
 
       // If room_id or user_name column is missing on DB schema cache, retry with core schema
       if (
@@ -505,14 +533,28 @@ export default function ChatPage() {
           insertError.message.includes('user_name') ||
           insertError.message.includes('schema cache'))
       ) {
-        const { error: retryError } = await supabase.from('messages').insert({
-          user_id: user.id,
-          user_email: user.email,
-          content: messageContent,
-          file_url: uploadedFileUrl,
-          file_type: uploadedFileType,
-        });
+        const { data: retryData, error: retryError } = await supabase
+          .from('messages')
+          .insert({
+            user_id: user.id,
+            user_email: user.email,
+            content: messageContent,
+            file_url: uploadedFileUrl,
+            file_type: uploadedFileType,
+          })
+          .select();
+
+        insertedData = retryData;
         insertError = retryError;
+      }
+
+      // If DB insert returned created message ID, bind it to currentRoomId in localStorage
+      if (insertedData && insertedData[0]?.id) {
+        try {
+          localStorage.setItem(`fica_msg_room_${insertedData[0].id}`, currentRoomId);
+        } catch {
+          // Ignore
+        }
       }
 
       if (insertError) {
