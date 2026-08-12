@@ -1944,7 +1944,11 @@ export default function ChatPage() {
                   </div>
                 ) : (
                   messages.map((msg) => {
-                    const isMe = msg.user_id === user?.id;
+                    const isMe =
+                      (msg.user_id && msg.user_id === user?.id) ||
+                      (msg.user_email &&
+                        user?.email &&
+                        msg.user_email.toLowerCase().trim() === user.email.toLowerCase().trim());
                     const senderDisplayName = getDisplayNameForEmail(
                       msg.user_email,
                       msg.user_name || undefined
@@ -1953,8 +1957,8 @@ export default function ChatPage() {
                     return (
                       <div
                         key={msg.id}
-                        className={`flex items-start gap-2.5 group ${
-                          isMe ? 'flex-row-reverse' : 'flex-row'
+                        className={`flex items-start gap-2.5 group w-full ${
+                          isMe ? 'justify-end flex-row-reverse' : 'justify-start flex-row'
                         }`}
                       >
                         {/* Sender Avatar Photo (Syncs for both Me and Friend) */}
