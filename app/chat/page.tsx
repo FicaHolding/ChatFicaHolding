@@ -301,7 +301,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v70 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v80 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -314,13 +314,13 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v69
-      const keysToPurge = Array.from({ length: 70 }, (_, i) =>
+      // Purge all legacy cache keys up to v79
+      const keysToPurge = Array.from({ length: 80 }, (_, i) =>
         i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
       );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v70');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v80');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -367,7 +367,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v70', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v80', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -378,7 +378,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v70', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v80', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -463,29 +463,48 @@ export default function ChatPage() {
       deterministicId = getDeterministicDirectRoomId(room.allowed_emails[0], room.allowed_emails[1]);
     }
 
-    // 1. Direct match on msg.room_id
-    if (msg.room_id) {
-      if (msg.room_id === room.id) return true;
-      if (deterministicId && msg.room_id === deterministicId) return true;
+    const checkMatch = (rId?: string | null): boolean => {
+      if (!rId) return false;
+      if (rId === room.id) return true;
+      if (deterministicId && rId === deterministicId) return true;
+      if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
+        const e1 = room.allowed_emails[0].toLowerCase().trim();
+        const e2 = room.allowed_emails[1].toLowerCase().trim();
+        if (rId.includes(e1) && rId.includes(e2)) return true;
+      }
       return false;
-    }
+    };
 
-    // 2. Check localStorage mapping if legacy
+    // 1. Direct match on msg.room_id
+    if (msg.room_id && checkMatch(msg.room_id)) return true;
+
+    // 2. Check localStorage mapping by msg.id
     try {
       const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
-      if (localRoom) {
-        if (localRoom === room.id || (deterministicId && localRoom === deterministicId)) return true;
-        return false;
-      }
+      if (localRoom && checkMatch(localRoom)) return true;
     } catch {
-      // Fallback
+      // Safe
     }
 
-    // 3. For 1-on-1 direct rooms, if msg.room_id is missing, ONLY match if sender is partner email
+    // 3. Check localStorage content mapping
+    if (msg.content) {
+      try {
+        const contentKey = `fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`;
+        const localContentRoom = localStorage.getItem(contentKey);
+        if (localContentRoom && checkMatch(localContentRoom)) return true;
+      } catch {
+        // Safe
+      }
+    }
+
+    // 4. For 1-on-1 direct rooms fallback
     if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-      const partner = getDirectChatPartnerEmail(room, user?.email);
-      if (partner && msg.user_email && msg.user_email.toLowerCase().trim() === partner.toLowerCase().trim()) {
-        return true;
+      const allowedLowers = room.allowed_emails.map((e) => e.toLowerCase().trim());
+      const msgSender = (msg.user_email || '').toLowerCase().trim();
+      if (allowedLowers.includes(msgSender)) {
+        if (!msg.room_id || checkMatch(msg.room_id)) {
+          return true;
+        }
       }
     }
 
@@ -1353,11 +1372,22 @@ export default function ChatPage() {
 
       if (insertedData && insertedData[0]?.id) {
         const realId = insertedData[0].id;
+        const fullInsertedObj: Message = {
+          ...insertedData[0],
+          room_id: insertedData[0].room_id || currentRoomId,
+          user_name: insertedData[0].user_name || displayName,
+          user_avatar: insertedData[0].user_avatar || avatarUrl,
+        };
+
         try {
           localStorage.setItem(`fica_msg_room_${realId}`, currentRoomId);
         } catch {
           // Ignore
         }
+
+        // Guarantee state update with fullInsertedObj
+        setAllMessages((prev) => prev.map((m) => (isSameMessage(m, newMsgObj) ? fullInsertedObj : m)));
+        setMessages((prev) => prev.map((m) => (isSameMessage(m, newMsgObj) ? fullInsertedObj : m)));
       }
     } catch (err: unknown) {
       console.error('Lỗi:', err);
