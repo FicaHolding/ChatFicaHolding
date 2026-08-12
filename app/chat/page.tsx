@@ -1071,19 +1071,55 @@ export default function ChatPage() {
     setShowMobileSidebar(false);
   };
 
-  // Handle Delete Chat Room / Disband Group
+  // Handle Delete Chat Room / Disband Group / Clear Conversation
   const handleDeleteRoom = async () => {
     if (!activeRoom) return;
 
     setDeleteRoomLoading(true);
 
+    const roomToDelete = activeRoom;
+    let deterministicId: string | null = null;
+    let partnerEmail: string | null = null;
+
+    if (roomToDelete.isDirect && roomToDelete.allowed_emails && roomToDelete.allowed_emails.length >= 2) {
+      deterministicId = getDeterministicDirectRoomId(roomToDelete.allowed_emails[0], roomToDelete.allowed_emails[1]);
+      partnerEmail = getDirectChatPartnerEmail(roomToDelete, user?.email);
+    }
+
     try {
-      await supabase.from('messages').delete().eq('room_id', activeRoom.id);
-      await supabase.from('room_members').delete().eq('room_id', activeRoom.id);
+      // 1. Delete DB messages matching room.id
+      await supabase.from('messages').delete().eq('room_id', roomToDelete.id);
+
+      // 2. Delete DB messages matching deterministicId if different
+      if (deterministicId && deterministicId !== roomToDelete.id) {
+        await supabase.from('messages').delete().eq('room_id', deterministicId);
+      }
+
+      // 3. Delete DB messages sent by partner email
+      if (partnerEmail) {
+        await supabase.from('messages').delete().eq('user_email', partnerEmail);
+      }
+
+      await supabase.from('room_members').delete().eq('room_id', roomToDelete.id);
+      if (deterministicId) {
+        await supabase.from('room_members').delete().eq('room_id', deterministicId);
+      }
     } catch (e) {
       console.log('Error deleting room records on DB:', e);
     } finally {
-      const filteredRooms = rooms.filter((r) => r.id !== activeRoom.id);
+      // Purge local allMessages and messages state for this room
+      setAllMessages((prev) => prev.filter((m) => !isMessageInRoom(m, roomToDelete)));
+      setMessages([]);
+
+      // Clear last message preview map entry
+      setRoomLastMessages((prev) => {
+        const updated = { ...prev };
+        delete updated[roomToDelete.id];
+        if (deterministicId) delete updated[deterministicId];
+        return updated;
+      });
+
+      const filteredRooms = rooms.filter((r) => r.id !== roomToDelete.id && r.id !== deterministicId);
       updateRoomsState(filteredRooms);
 
       const nextRoom = filteredRooms.find((r) => canUserAccessRoom(r, user?.email)) || null;
