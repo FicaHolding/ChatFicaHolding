@@ -101,6 +101,10 @@ export default function ChatPage() {
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
 
+  // Rename room modal
+  const [showRenameRoomModal, setShowRenameRoomModal] = useState(false);
+  const [editRoomNameInput, setEditRoomNameInput] = useState('');
+
   // Delete room confirm modal
   const [showDeleteRoomModal, setShowDeleteRoomModal] = useState(false);
   const [deleteRoomLoading, setDeleteRoomLoading] = useState(false);
@@ -250,6 +254,20 @@ export default function ChatPage() {
     }
   };
 
+  // Rename Active Room Handler
+  const handleRenameRoom = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editRoomNameInput.trim() || !activeRoom) return;
+
+    const newName = editRoomNameInput.trim();
+    const updatedRooms = rooms.map((r) => (r.id === activeRoom.id ? { ...r, name: newName } : r));
+
+    updateRoomsState(updatedRooms);
+    setActiveRoom({ ...activeRoom, name: newName });
+    setShowRenameRoomModal(false);
+    setShowGroupSettingsModal(false);
+  };
+
   // Helper check: Is user Room Creator / Admin (Trưởng nhóm)?
   const isRoomOwner = (room: ChatRoom | null, email?: string | null): boolean => {
     if (!room || !email) return false;
@@ -333,7 +351,7 @@ export default function ChatPage() {
     return false;
   };
 
-  // Start 1-on-1 Direct Chat with a friend (Zalo Direct Message)
+  // Start 1-on-1 Direct Chat with a friend
   const handleStartDirectChat = (friendEmail: string, friendName?: string) => {
     if (!user) return;
     const myEmail = user.email || '';
@@ -1247,7 +1265,7 @@ export default function ChatPage() {
                 </button>
               </div>
 
-              {/* Chat Rooms Scrollable Feed (Pixel Perfect Zalo Styling) */}
+              {/* Chat Rooms Scrollable Feed */}
               <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
                 {visibleRooms.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-400 space-y-2">
@@ -1822,11 +1840,19 @@ export default function ChatPage() {
                     {activeRoom.name.charAt(0).toUpperCase()}
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  {/* Group Name & Rename Button (Pencil Icon ✎ - FIX) */}
+                  <div className="flex items-center gap-1 justify-center">
                     <h4 className="font-bold text-sm text-slate-900">{activeRoom.name}</h4>
                     {!activeRoom.isDirect && (
-                      <button className="p-1 text-slate-400 hover:text-blue-600">
-                        <Edit2 className="w-3.5 h-3.5" />
+                      <button
+                        onClick={() => {
+                          setEditRoomNameInput(activeRoom.name);
+                          setShowRenameRoomModal(true);
+                        }}
+                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded transition"
+                        title="Đổi tên nhóm (Click vào để đổi tên)"
+                      >
+                        <Edit2 className="w-4 h-4 text-blue-600" />
                       </button>
                     )}
                   </div>
@@ -1876,7 +1902,7 @@ export default function ChatPage() {
                   <button
                     onClick={() => setShowGroupSettingsModal(true)}
                     className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition"
-                    title="Mở Quản lý"
+                    title="Mở Quản lý nhóm & Đổi tên nhóm"
                   >
                     <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-blue-100 flex items-center justify-center text-slate-700 hover:text-blue-600">
                       <Settings className="w-4 h-4" />
@@ -1986,6 +2012,63 @@ export default function ChatPage() {
       {/* MODALS */}
       {/* ========================================================================= */}
 
+      {/* Rename Room Modal (FIX) */}
+      {showRenameRoomModal && activeRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative border border-slate-200">
+            <button
+              onClick={() => setShowRenameRoomModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-blue-100 text-blue-600 rounded-xl">
+                <Edit2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">Đổi tên nhóm</h3>
+                <p className="text-xs text-slate-500">Cập nhật tên mới cho nhóm chat này</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleRenameRoom} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                  Tên nhóm mới
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editRoomNameInput}
+                  onChange={(e) => setEditRoomNameInput(e.target.value)}
+                  placeholder="Ví dụ: HOLDING SHK - KẾ TOÁN..."
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRenameRoomModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Lưu tên nhóm</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Add Friend Modal (+👤) */}
       {showAddFriendModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
@@ -2075,8 +2158,27 @@ export default function ChatPage() {
               {/* Management Features */}
               <div className="space-y-2">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Cấu hình thành viên
+                  Cấu hình nhóm
                 </p>
+
+                {/* Rename Group Item */}
+                {!activeRoom.isDirect && (
+                  <button
+                    onClick={() => {
+                      setShowGroupSettingsModal(false);
+                      setEditRoomNameInput(activeRoom.name);
+                      setShowRenameRoomModal(true);
+                    }}
+                    className="w-full p-3 bg-slate-50 hover:bg-blue-50 border border-slate-200 rounded-xl text-left flex items-center justify-between text-xs font-semibold text-slate-700 transition"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Edit2 className="w-4 h-4 text-blue-600" />
+                      <span>Đổi tên nhóm</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     setShowGroupSettingsModal(false);
