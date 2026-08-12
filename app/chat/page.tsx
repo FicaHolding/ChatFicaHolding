@@ -84,6 +84,11 @@ export default function ChatPage() {
     'fica.holding@gmail.com': { name: 'Fica Holding' },
   });
 
+  // Real-time last message preview map per room ID
+  const [roomLastMessages, setRoomLastMessages] = useState<{
+    [roomId: string]: { senderEmail?: string; content: string; time: string };
+  }>({});
+
   // Search & Filter Tabs
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'all' | 'unread'>('all');
@@ -642,6 +647,19 @@ export default function ChatPage() {
       if (!error && data) {
         const filtered = (data as Message[]).filter((m) => isMessageInRoom(m, activeRoom));
 
+        // Extract last message per room across all fetched messages
+        const lastMap: { [rId: string]: { senderEmail?: string; content: string; time: string } } = {};
+        (data as Message[]).forEach((m) => {
+          if (m.room_id) {
+            lastMap[m.room_id] = {
+              senderEmail: m.user_email,
+              content: m.content || (m.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
+              time: m.created_at,
+            };
+          }
+        });
+        setRoomLastMessages((prev) => ({ ...prev, ...lastMap }));
+
         // Also extract sender avatars from message history
         filtered.forEach((m) => {
           if (m.user_email && (m.user_name || m.user_avatar)) {
@@ -686,6 +704,18 @@ export default function ChatPage() {
                 [lower]: {
                   name: newMessage.user_name || prev[lower]?.name || lower.split('@')[0],
                   avatar_url: newMessage.user_avatar || prev[lower]?.avatar_url,
+                },
+              }));
+            }
+
+            // Update real-time last message preview
+            if (newMessage.room_id) {
+              setRoomLastMessages((prev) => ({
+                ...prev,
+                [newMessage.room_id!]: {
+                  senderEmail: newMessage.user_email,
+                  content: newMessage.content || (newMessage.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
+                  time: newMessage.created_at,
                 },
               }));
             }
@@ -1203,6 +1233,16 @@ export default function ChatPage() {
         return [...prev, newMsgObj];
       });
 
+      // Update real-time room last message preview
+      setRoomLastMessages((prev) => ({
+        ...prev,
+        [currentRoomId]: {
+          senderEmail: user.email || '',
+          content: messageContent || (uploadedFileType === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
+          time: new Date().toISOString(),
+        },
+      }));
+
       setInputText('');
       setReplyTarget(null);
       handleClearFile();
@@ -1491,6 +1531,19 @@ export default function ChatPage() {
                       ? getDisplayNameForEmail(partnerEmail, room.name)
                       : room.name;
 
+                    const lastMsg = roomLastMessages[room.id];
+                    const isLastMsgMe = lastMsg?.senderEmail?.toLowerCase() === user?.email?.toLowerCase();
+
+                    const previewText = lastMsg
+                      ? `${isLastMsgMe ? 'Bạn: ' : ''}${lastMsg.content}`
+                      : isDirectChat
+                      ? 'Chưa có tin nhắn'
+                      : `${(room.allowed_emails || []).length} thành viên`;
+
+                    const timeText = lastMsg
+                      ? new Date(lastMsg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : '';
+
                     return (
                       <div
                         key={room.id}
@@ -1534,13 +1587,11 @@ export default function ChatPage() {
                               {!isDirectChat && <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
                               <span className="truncate">{displayNameToShow}</span>
                             </h4>
-                            <span className="text-[10px] text-slate-400 shrink-0">10:45</span>
+                            {timeText && <span className="text-[10px] text-slate-400 shrink-0">{timeText}</span>}
                           </div>
 
                           <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {isDirectChat
-                              ? 'Bạn: Ok chiều họp luôn'
-                              : `${(room.allowed_emails || []).length} thành viên`}
+                            {previewText}
                           </p>
                         </div>
 
