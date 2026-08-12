@@ -303,7 +303,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v100 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v110 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -316,13 +316,13 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v99
-      const keysToPurge = Array.from({ length: 100 }, (_, i) =>
+      // Purge all legacy cache keys up to v109
+      const keysToPurge = Array.from({ length: 110 }, (_, i) =>
         i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
       );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v100');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v110');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -369,7 +369,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v100', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v110', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -380,7 +380,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v100', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v110', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -499,14 +499,10 @@ export default function ChatPage() {
       }
     }
 
-    // 4. For 1-on-1 direct rooms fallback
+    // 4. For 1-on-1 direct rooms fallback: ONLY match if msg.room_id explicitly matches checkMatch(msg.room_id)
     if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-      const allowedLowers = room.allowed_emails.map((e) => e.toLowerCase().trim());
-      const msgSender = (msg.user_email || '').toLowerCase().trim();
-      if (allowedLowers.includes(msgSender)) {
-        if (!msg.room_id || checkMatch(msg.room_id)) {
-          return true;
-        }
+      if (msg.room_id && checkMatch(msg.room_id)) {
+        return true;
       }
     }
 
@@ -1094,9 +1090,13 @@ export default function ChatPage() {
     const roomToDelete = activeRoom;
     let deterministicId: string | null = null;
     let partnerEmail: string | null = null;
+    let altPatternId: string | null = null;
 
     if (roomToDelete.isDirect && roomToDelete.allowed_emails && roomToDelete.allowed_emails.length >= 2) {
-      deterministicId = getDeterministicDirectRoomId(roomToDelete.allowed_emails[0], roomToDelete.allowed_emails[1]);
+      const e1 = roomToDelete.allowed_emails[0].toLowerCase().trim();
+      const e2 = roomToDelete.allowed_emails[1].toLowerCase().trim();
+      deterministicId = getDeterministicDirectRoomId(e1, e2);
+      altPatternId = `direct_${e2}_${e1}`;
       partnerEmail = getDirectChatPartnerEmail(roomToDelete, user?.email);
     }
 
@@ -1104,19 +1104,24 @@ export default function ChatPage() {
       // 1. Delete DB messages matching room.id
       await supabase.from('messages').delete().eq('room_id', roomToDelete.id);
 
-      // 2. Delete DB messages matching deterministicId if different
+      // 2. Delete DB messages matching deterministicId
       if (deterministicId && deterministicId !== roomToDelete.id) {
         await supabase.from('messages').delete().eq('room_id', deterministicId);
       }
 
-      // 3. Delete DB messages sent by partner email
-      if (partnerEmail) {
-        await supabase.from('messages').delete().eq('user_email', partnerEmail);
+      // 3. Delete DB messages matching altPatternId
+      if (altPatternId && altPatternId !== roomToDelete.id && altPatternId !== deterministicId) {
+        await supabase.from('messages').delete().eq('room_id', altPatternId);
       }
 
-      // 4. Delete orphan DB messages with room_id IS NULL sent by user
+      // 4. Delete DB messages sent by partner email
+      if (partnerEmail) {
+        await supabase.from('messages').delete().eq('user_email', partnerEmail.toLowerCase().trim());
+      }
+
+      // 5. Delete orphan DB messages with room_id IS NULL
       if (user?.email) {
-        await supabase.from('messages').delete().is('room_id', null).eq('user_email', user.email);
+        await supabase.from('messages').delete().is('room_id', null);
       }
 
       await supabase.from('room_members').delete().eq('room_id', roomToDelete.id);
