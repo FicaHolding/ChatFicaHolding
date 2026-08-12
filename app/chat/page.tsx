@@ -160,12 +160,18 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v11
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
+      const targetFriend =
+        userEmail.toLowerCase() === 'huytq.ktv@gmail.com'
+          ? 'fica.holding@gmail.com'
+          : 'huytq.ktv@gmail.com';
+      const friendName =
+        userEmail.toLowerCase() === 'huytq.ktv@gmail.com' ? 'Fica Admin' : 'Trịnh Huy';
 
-      // Purge all legacy cache keys
+      // Purge all legacy cache keys up to v10
       const keysToPurge = [
         'fica_chat_rooms',
         'fica_chat_rooms_v2',
@@ -175,10 +181,12 @@ export default function ChatPage() {
         'fica_chat_rooms_v6',
         'fica_chat_rooms_v7',
         'fica_chat_rooms_v8',
+        'fica_chat_rooms_v9',
+        'fica_chat_rooms_v10',
       ];
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v10');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v11');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -194,7 +202,7 @@ export default function ChatPage() {
         }
       }
 
-      // Default initial rooms for current logged in user
+      // Default initial rooms displaying BOTH Group chats (with 👥) & Direct 1-1 Friend chats
       const initialDefaultRooms: ChatRoom[] = [
         {
           id: 'room_ke_toan',
@@ -202,16 +210,17 @@ export default function ChatPage() {
           created_by: userEmail,
           isPrivate: true,
           vice_admins: [],
-          allowed_emails: [userEmail],
+          allowed_emails: [userEmail, targetFriend],
           pinned: true,
         },
         {
-          id: 'room_kinh_doanh',
-          name: 'Phòng Kinh Doanh',
+          id: `direct_${Date.now()}`,
+          name: friendName,
           created_by: userEmail,
           isPrivate: true,
-          vice_admins: [],
-          allowed_emails: [userEmail],
+          isDirect: true,
+          direct_user_email: targetFriend,
+          allowed_emails: [userEmail, targetFriend],
         },
         {
           id: 'room_ky_thuat',
@@ -219,12 +228,12 @@ export default function ChatPage() {
           created_by: userEmail,
           isPrivate: true,
           vice_admins: [],
-          allowed_emails: [userEmail],
+          allowed_emails: [userEmail, targetFriend],
         },
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v10', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v11', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -235,7 +244,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v10', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v11', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -354,7 +363,7 @@ export default function ChatPage() {
     const displayNameForRoom = friendName || targetEmail.split('@')[0];
     const newDirectRoom: ChatRoom = {
       id: `direct_${Date.now()}`,
-      name: `Chat với ${displayNameForRoom}`,
+      name: displayNameForRoom,
       created_by: myEmail,
       isPrivate: true,
       isDirect: true,
@@ -1238,7 +1247,7 @@ export default function ChatPage() {
                 </button>
               </div>
 
-              {/* Chat Rooms Scrollable Feed */}
+              {/* Chat Rooms Scrollable Feed (Pixel Perfect Zalo Styling) */}
               <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
                 {visibleRooms.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-400 space-y-2">
@@ -1253,6 +1262,16 @@ export default function ChatPage() {
                 ) : (
                   visibleRooms.map((room) => {
                     const isActive = activeRoom && room.id === activeRoom.id;
+                    const isDirectChat = room.isDirect;
+
+                    let displayNameToShow = room.name;
+                    if (isDirectChat) {
+                      if (room.direct_user_email) {
+                        displayNameToShow = room.direct_user_email.split('@')[0];
+                      } else {
+                        displayNameToShow = room.name.replace(/^Chat với\s*/i, '');
+                      }
+                    }
 
                     return (
                       <div
@@ -1261,21 +1280,23 @@ export default function ChatPage() {
                           setActiveRoom(room);
                           setShowMobileSidebar(false);
                         }}
-                        className={`flex items-center gap-3 p-3 cursor-pointer transition relative group ${
+                        className={`flex items-center gap-3 p-3 mx-2 my-1 rounded-xl cursor-pointer transition relative group ${
                           isActive
-                            ? 'bg-blue-50/80 border-l-4 border-blue-600'
+                            ? 'bg-[#e5efff] border-l-4 border-blue-600'
                             : 'hover:bg-slate-50 border-l-4 border-transparent'
                         }`}
                       >
-                        {/* Group / Direct Avatar */}
+                        {/* Avatar */}
                         <div className="relative shrink-0">
-                          {room.isDirect ? (
-                            <div className="w-12 h-12 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-                              {room.name.charAt(0).toUpperCase()}
+                          {isDirectChat ? (
+                            /* Direct 1-on-1 Personal Avatar */
+                            <div className="w-12 h-12 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
+                              {displayNameToShow.charAt(0).toUpperCase()}
                             </div>
                           ) : (
-                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-                              {room.name.charAt(0).toUpperCase()}
+                            /* Group Chat Avatar */
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 via-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
+                              {displayNameToShow.charAt(0).toUpperCase()}
                             </div>
                           )}
                           {room.pinned && (
@@ -1289,20 +1310,21 @@ export default function ChatPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <h4
-                              className={`text-xs font-semibold truncate ${
-                                isActive ? 'text-blue-900 font-bold' : 'text-slate-800'
+                              className={`text-xs truncate flex items-center gap-1.5 ${
+                                isActive ? 'text-blue-900 font-bold' : 'text-slate-800 font-semibold'
                               }`}
                             >
-                              {room.name}
+                              {/* Show Group Icon 👥 ONLY for Group Chats, NOT for Direct 1-1 Chats! */}
+                              {!isDirectChat && <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+                              <span className="truncate">{displayNameToShow}</span>
                             </h4>
                             <span className="text-[10px] text-slate-400 shrink-0">10:45</span>
                           </div>
+
                           <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {room.isDirect
-                              ? `Trò chuyện riêng 1-1`
-                              : room.allowed_emails && room.allowed_emails.length > 0
-                              ? `${room.allowed_emails.length} thành viên`
-                              : 'Bắt đầu cuộc trò chuyện...'}
+                            {isDirectChat
+                              ? 'Bạn: Ok chiều họp luôn'
+                              : `${(room.allowed_emails || []).length} thành viên`}
                           </p>
                         </div>
 
