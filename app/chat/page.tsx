@@ -43,6 +43,7 @@ import {
   ThumbsUp,
   CornerUpLeft,
   ChevronDown,
+  ChevronLeft,
   Edit2,
   Bell,
   Camera,
@@ -71,6 +72,9 @@ export default function ChatPage() {
 
   // Left Nav Tab: 'chats' | 'contacts'
   const [activeNavTab, setActiveNavTab] = useState<'chats' | 'contacts'>('chats');
+
+  // Mobile View Navigation Mode: 'list' (Chat/Contacts list) | 'chat' (Active Chat feed)
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
 
   // Friends & Contacts State
   const [friendsList, setFriendsList] = useState<Friend[]>([]);
@@ -521,6 +525,7 @@ export default function ChatPage() {
       updateRoomsState(updated);
       setActiveRoom({ ...existingDirect, id: deterministicRoomId, name: resolvedName });
       setActiveNavTab('chats');
+      setMobileView('chat');
       setShowMembersModal(false);
       setShowMobileSidebar(false);
       return;
@@ -541,6 +546,7 @@ export default function ChatPage() {
     updateRoomsState(updatedRooms);
     setActiveRoom(newDirectRoom);
     setActiveNavTab('chats');
+    setMobileView('chat');
     setShowMembersModal(false);
     setShowMobileSidebar(false);
   };
@@ -1449,11 +1455,11 @@ export default function ChatPage() {
         </nav>
 
         {/* ========================================================================= */}
-        {/* COLUMN 2: CHAT ROOMS & FRIENDS CONTACTS COLUMN (320px Width) */}
+        {/* COLUMN 2: CHAT ROOMS & FRIENDS CONTACTS COLUMN (320px Width on Desktop, 100% Full Width on Mobile) */}
         {/* ========================================================================= */}
         <aside
-          className={`w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 transition-transform duration-300 md:static ${
-            showMobileSidebar ? 'fixed inset-y-0 left-16 z-40 shadow-2xl' : 'hidden md:flex'
+          className={`w-full md:w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 transition-all duration-300 ${
+            mobileView === 'list' ? 'flex flex-1 h-full w-full' : 'hidden md:flex'
           }`}
         >
           {/* Top Search Bar & Actions (+👤 Thêm bạn & +👥 Tạo nhóm) */}
@@ -1465,14 +1471,14 @@ export default function ChatPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Tìm kiếm"
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-100 rounded-lg text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full pl-9 pr-3 py-2 sm:py-1.5 bg-slate-100 rounded-lg text-sm sm:text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* Add Friend Button (+👤) */}
             <button
               onClick={() => setShowAddFriendModal(true)}
-              className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+              className="p-2 sm:p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
               title="Thêm bạn mới (+👤)"
             >
               <UserPlus className="w-5 h-5" />
@@ -1481,7 +1487,7 @@ export default function ChatPage() {
             {/* Create Group Button (+👥) */}
             <button
               onClick={() => setShowCreateRoomModal(true)}
-              className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+              className="p-2 sm:p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
               title="Tạo nhóm mới (+👥)"
             >
               <Users className="w-5 h-5" />
@@ -1565,7 +1571,7 @@ export default function ChatPage() {
                         key={room.id}
                         onClick={() => {
                           setActiveRoom(room);
-                          setShowMobileSidebar(false);
+                          setMobileView('chat');
                         }}
                         className={`flex items-center gap-3 p-3 mx-2 my-1 rounded-xl cursor-pointer transition relative group ${
                           isActive
@@ -1689,22 +1695,64 @@ export default function ChatPage() {
               </div>
             </div>
           )}
+
+          {/* Mobile Zalo Bottom Navigation Bar (Visible ONLY on Mobile < 768px when in List View) */}
+          <div className="md:hidden h-14 bg-white border-t border-slate-200 flex items-center justify-around shrink-0 z-30 px-2 shadow-lg">
+            <button
+              onClick={() => setActiveNavTab('chats')}
+              className={`flex flex-col items-center gap-0.5 transition ${
+                activeNavTab === 'chats' ? 'text-blue-600 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span className="text-[10px]">Tin nhắn</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNavTab('contacts')}
+              className={`flex flex-col items-center gap-0.5 transition ${
+                activeNavTab === 'contacts' ? 'text-blue-600 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <Contact2 className="w-5 h-5" />
+              <span className="text-[10px]">Danh bạ</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowProfileModal(true);
+                setEditNameInput(displayName);
+                setAvatarPreview(avatarUrl);
+                setProfileSuccess(null);
+              }}
+              className="flex flex-col items-center gap-0.5 text-slate-500 hover:text-blue-600 transition"
+            >
+              <UserCheck className="w-5 h-5" />
+              <span className="text-[10px]">Cá nhân</span>
+            </button>
+          </div>
         </aside>
 
         {/* ========================================================================= */}
-        {/* COLUMN 3: MAIN CHAT FEED WINDOW (Central Flex-1) */}
+        {/* COLUMN 3: MAIN CHAT FEED WINDOW (Central Flex-1 on Desktop, 100% Width on Mobile) */}
         {/* ========================================================================= */}
-        <main className="flex-1 flex flex-col h-full bg-[#f4f5f7] min-w-0 border-r border-slate-200 relative">
+        <main
+          className={`flex-1 flex flex-col h-full bg-[#f4f5f7] min-w-0 border-r border-slate-200 relative ${
+            mobileView === 'chat' ? 'flex flex-1 h-full w-full' : 'hidden md:flex'
+          }`}
+        >
           {activeRoom ? (
             <>
               {/* Top Bar Header */}
-              <header className="h-16 px-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-sm">
-                <div className="flex items-center gap-3">
+              <header className="h-16 px-3 sm:px-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-sm">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {/* Mobile Back Arrow Button ⬅️ */}
                   <button
-                    onClick={() => setShowMobileSidebar(true)}
-                    className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                    onClick={() => setMobileView('list')}
+                    className="md:hidden p-1.5 text-slate-700 hover:bg-slate-100 rounded-full transition shrink-0"
+                    title="Quay lại danh sách"
                   >
-                    <Menu className="w-5 h-5" />
+                    <ChevronLeft className="w-6 h-6 stroke-[2.5]" />
                   </button>
 
                   {activeRoom.isDirect ? (
