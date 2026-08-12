@@ -448,22 +448,41 @@ export default function ChatPage() {
     }
   }, [user, visibleRooms, activeRoom]);
 
-  // Robust helper to resolve a message's room_id
-  const getMessageRoomId = (msg: Message, targetRoomId?: string): string => {
-    if (msg.room_id && msg.room_id !== 'general') return msg.room_id;
+  // Robust helper to check if a message belongs to a specific room
+  const isMessageInRoom = (msg: Message, room: ChatRoom | null): boolean => {
+    if (!room) return false;
+
+    // 1. Direct match on msg.room_id
+    if (msg.room_id) {
+      return msg.room_id === room.id;
+    }
+
+    // 2. Check localStorage mapping if legacy
     try {
       const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
-      if (localRoom) return localRoom;
-      if (msg.content) {
-        const matchByContent = localStorage.getItem(
-          `fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`
-        );
-        if (matchByContent) return matchByContent;
-      }
+      if (localRoom) return localRoom === room.id;
     } catch {
       // Fallback
     }
-    return targetRoomId || activeRoom?.id || 'room_ke_toan';
+
+    // 3. For 1-on-1 direct rooms, if msg.room_id is missing, ONLY match if sender & receiver match allowed_emails
+    // AND message was created around or after room creation, NOT old legacy test messages!
+    if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
+      const sender = (msg.user_email || '').toLowerCase().trim();
+      const isSenderInRoom = room.allowed_emails.some((e) => e.toLowerCase().trim() === sender);
+      if (!isSenderInRoom) return false;
+
+      // Extract timestamp from room ID if format is direct_<timestamp>
+      const roomCreatedTimestamp = parseInt(room.id.replace('direct_', '')) || 0;
+      const msgTimestamp = new Date(msg.created_at).getTime();
+
+      // If room was created AFTER the old message was sent, do NOT leak old test message into this new room!
+      if (roomCreatedTimestamp > 0 && msgTimestamp < roomCreatedTimestamp - 60000) {
+        return false;
+      }
+    }
+
+    return false;
   };
 
   // Smart deduplication helper matching IDs or User+Content+Timeframe
@@ -621,10 +640,7 @@ export default function ChatPage() {
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        const filtered = (data as Message[]).filter((m) => {
-          const roomOfMsg = getMessageRoomId(m, activeRoom.id);
-          return roomOfMsg === activeRoom.id;
-        });
+        const filtered = (data as Message[]).filter((m) => isMessageInRoom(m, activeRoom));
 
         // Also extract sender avatars from message history
         filtered.forEach((m) => {
@@ -644,12 +660,7 @@ export default function ChatPage() {
           }
         });
 
-        setMessages((prev) => {
-          if (filtered.length === 0 && prev.length > 0) {
-            return prev;
-          }
-          return filtered;
-        });
+        setMessages(filtered);
       }
 
       setLoading(false);
@@ -666,7 +677,6 @@ export default function ChatPage() {
           },
           (payload) => {
             const newMessage = payload.new as Message;
-            const msgRoomId = getMessageRoomId(newMessage, activeRoom.id);
 
             // Dynamically update sender avatar profile cache
             if (newMessage.user_email && (newMessage.user_name || newMessage.user_avatar)) {
@@ -680,7 +690,7 @@ export default function ChatPage() {
               }));
             }
 
-            if (activeRoom && (msgRoomId === activeRoom.id || !newMessage.room_id)) {
+            if (activeRoom && isMessageInRoom(newMessage, activeRoom)) {
               setMessages((prev) => {
                 const existingIndex = prev.findIndex((m) => isSameMessage(m, newMessage));
                 if (existingIndex !== -1) {
