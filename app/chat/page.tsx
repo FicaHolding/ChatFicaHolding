@@ -454,29 +454,27 @@ export default function ChatPage() {
   const isMessageInRoom = (msg: Message, room: ChatRoom | null): boolean => {
     if (!room) return false;
 
+    let deterministicId: string | null = null;
+    if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
+      deterministicId = getDeterministicDirectRoomId(room.allowed_emails[0], room.allowed_emails[1]);
+    }
+
     // 1. Direct match on msg.room_id
     if (msg.room_id) {
       if (msg.room_id === room.id) return true;
-      if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-        const deterministicId = getDeterministicDirectRoomId(room.allowed_emails[0], room.allowed_emails[1]);
-        if (msg.room_id === deterministicId) return true;
-      }
+      if (deterministicId && msg.room_id === deterministicId) return true;
       return false;
     }
 
     // 2. Check localStorage mapping if legacy
     try {
       const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
-      if (localRoom) return localRoom === room.id;
+      if (localRoom) {
+        if (localRoom === room.id || (deterministicId && localRoom === deterministicId)) return true;
+        return false;
+      }
     } catch {
       // Fallback
-    }
-
-    // 3. For 1-on-1 direct rooms, if msg.room_id is missing, ONLY match if sender & receiver match allowed_emails
-    if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-      const sender = (msg.user_email || '').toLowerCase().trim();
-      const isSenderInRoom = room.allowed_emails.some((e) => e.toLowerCase().trim() === sender);
-      return isSenderInRoom;
     }
 
     return false;
@@ -595,7 +593,9 @@ export default function ChatPage() {
     }, 1200);
   };
 
-  // Initial load: User session & Fetch existing messages for activeRoom & Setup Realtime
+  const [allMessages, setAllMessages] = useState<Message[]>([]);
+
+  // Initial load: User session & Fetch existing messages for all rooms & Setup Global Realtime
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
@@ -632,16 +632,19 @@ export default function ChatPage() {
         }));
       }
 
-      // Fetch messages for ALL rooms to calculate real-time last message previews
+      // Fetch messages for ALL rooms
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: true });
 
       if (!error && data) {
+        const fetchedMsgs = data as Message[];
+        setAllMessages(fetchedMsgs);
+
         // Extract real-time last message per room across all fetched messages
         const lastMap: { [rId: string]: { senderEmail?: string; content: string; time: string } } = {};
-        (data as Message[]).forEach((m) => {
+        fetchedMsgs.forEach((m) => {
           rooms.forEach((r) => {
             if (isMessageInRoom(m, r)) {
               lastMap[r.id] = {
@@ -651,44 +654,31 @@ export default function ChatPage() {
               };
             }
           });
-        });
-        setRoomLastMessages((prev) => ({ ...prev, ...lastMap }));
-
-        // Filter messages for currently active room
-        if (activeRoom) {
-          const filtered = (data as Message[]).filter((m) => isMessageInRoom(m, activeRoom));
 
           // Also extract sender avatars from message history
-          filtered.forEach((m) => {
-            if (m.user_email && (m.user_name || m.user_avatar)) {
-              const lower = m.user_email.toLowerCase().trim();
-              setUserProfiles((prev) => {
-                if (prev[lower]?.avatar_url === m.user_avatar && prev[lower]?.name === m.user_name)
-                  return prev;
-                return {
-                  ...prev,
-                  [lower]: {
-                    name: m.user_name || prev[lower]?.name || lower.split('@')[0],
-                    avatar_url: m.user_avatar || prev[lower]?.avatar_url,
-                  },
-                };
-              });
-            }
-          });
-
-          setMessages(filtered);
-        }
-      } else if (activeRoom) {
-        setMessages([]);
+          if (m.user_email && (m.user_name || m.user_avatar)) {
+            const lower = m.user_email.toLowerCase().trim();
+            setUserProfiles((prev) => {
+              if (prev[lower]?.avatar_url === m.user_avatar && prev[lower]?.name === m.user_name)
+                return prev;
+              return {
+                ...prev,
+                [lower]: {
+                  name: m.user_name || prev[lower]?.name || lower.split('@')[0],
+                  avatar_url: m.user_avatar || prev[lower]?.avatar_url,
+                },
+              };
+            });
+          }
+        });
+        setRoomLastMessages((prev) => ({ ...prev, ...lastMap }));
       }
 
       setLoading(false);
 
-      if (!activeRoom) return;
-
-      // Setup Realtime channel for active room
+      // Setup Global Realtime channel for all incoming messages
       channel = supabase
-        .channel(`room-${activeRoom.id}`)
+        .channel('global-messages-feed')
         .on(
           'postgres_changes',
           {
@@ -711,30 +701,30 @@ export default function ChatPage() {
               }));
             }
 
-            // Update real-time last message preview
-            const targetRoomId = newMessage.room_id || activeRoom.id;
-            if (targetRoomId) {
-              setRoomLastMessages((prev) => ({
-                ...prev,
-                [targetRoomId]: {
-                  senderEmail: newMessage.user_email,
-                  content: newMessage.content || (newMessage.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
-                  time: newMessage.created_at,
-                },
-              }));
-            }
+            // Append to allMessages state
+            setAllMessages((prev) => {
+              const existingIndex = prev.findIndex((m) => isSameMessage(m, newMessage));
+              if (existingIndex !== -1) {
+                const updated = [...prev];
+                updated[existingIndex] = newMessage;
+                return updated;
+              }
+              return [...prev, newMessage];
+            });
 
-            if (activeRoom && isMessageInRoom(newMessage, activeRoom)) {
-              setMessages((prev) => {
-                const existingIndex = prev.findIndex((m) => isSameMessage(m, newMessage));
-                if (existingIndex !== -1) {
-                  const updated = [...prev];
-                  updated[existingIndex] = { ...newMessage, room_id: activeRoom.id };
-                  return updated;
-                }
-                return [...prev, { ...newMessage, room_id: activeRoom.id }];
-              });
-            }
+            // Update real-time room last message preview
+            rooms.forEach((r) => {
+              if (isMessageInRoom(newMessage, r)) {
+                setRoomLastMessages((prev) => ({
+                  ...prev,
+                  [r.id]: {
+                    senderEmail: newMessage.user_email,
+                    content: newMessage.content || (newMessage.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
+                    time: newMessage.created_at,
+                  },
+                }));
+              }
+            });
           }
         )
         .subscribe();
@@ -747,7 +737,17 @@ export default function ChatPage() {
         supabase.removeChannel(channel);
       }
     };
-  }, [activeRoom, router, supabase]);
+  }, [router, supabase, rooms]);
+
+  // Dynamically filter activeRoom messages whenever activeRoom or allMessages update
+  useEffect(() => {
+    if (activeRoom) {
+      const filtered = allMessages.filter((m) => isMessageInRoom(m, activeRoom));
+      setMessages(filtered);
+    } else {
+      setMessages([]);
+    }
+  }, [activeRoom, allMessages]);
 
   // Handle Avatar Image File Selection in Edit Profile Modal
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1226,6 +1226,16 @@ export default function ChatPage() {
       } catch {
         // Ignore
       }
+
+      setAllMessages((prev) => {
+        const existingIndex = prev.findIndex((m) => isSameMessage(m, newMsgObj));
+        if (existingIndex !== -1) {
+          const updated = [...prev];
+          updated[existingIndex] = newMsgObj;
+          return updated;
+        }
+        return [...prev, newMsgObj];
+      });
 
       setMessages((prev) => {
         const existingIndex = prev.findIndex((m) => isSameMessage(m, newMsgObj));
