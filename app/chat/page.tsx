@@ -301,7 +301,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v50 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v60 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -314,13 +314,13 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v49
-      const keysToPurge = Array.from({ length: 50 }, (_, i) =>
+      // Purge all legacy cache keys up to v59
+      const keysToPurge = Array.from({ length: 60 }, (_, i) =>
         i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
       );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v50');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v60');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -367,7 +367,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v50', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v60', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -378,7 +378,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v50', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v60', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -481,11 +481,10 @@ export default function ChatPage() {
       // Fallback
     }
 
-    // 3. For 1-on-1 direct rooms, if msg.room_id is missing, match if sender is in room allowed_emails
+    // 3. For 1-on-1 direct rooms, if msg.room_id is missing, ONLY match if sender is partner email
     if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-      const allowedLowers = room.allowed_emails.map((e) => e.toLowerCase().trim());
-      const msgSender = (msg.user_email || '').toLowerCase().trim();
-      if (allowedLowers.includes(msgSender)) {
+      const partner = getDirectChatPartnerEmail(room, user?.email);
+      if (partner && msg.user_email && msg.user_email.toLowerCase().trim() === partner.toLowerCase().trim()) {
         return true;
       }
     }
