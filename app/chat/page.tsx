@@ -481,6 +481,15 @@ export default function ChatPage() {
       // Fallback
     }
 
+    // 3. For 1-on-1 direct rooms, if msg.room_id is missing, match if sender is in room allowed_emails
+    if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
+      const allowedLowers = room.allowed_emails.map((e) => e.toLowerCase().trim());
+      const msgSender = (msg.user_email || '').toLowerCase().trim();
+      if (allowedLowers.includes(msgSender)) {
+        return true;
+      }
+    }
+
     return false;
   };
 
@@ -1282,8 +1291,9 @@ export default function ChatPage() {
         .select();
 
       if (insertError) {
-        // Retry including room_id
-        const { data: retryData } = await supabase
+        console.log('Supabase Tier 1 Insert failed, trying Tier 2:', insertError);
+        // Tier 2 Insert: minimal fields WITH room_id
+        const { data: retry1Data, error: retry1Error } = await supabase
           .from('messages')
           .insert({
             user_id: user.id,
@@ -1294,7 +1304,27 @@ export default function ChatPage() {
             room_id: currentRoomId,
           })
           .select();
-        insertedData = retryData;
+
+        if (!retry1Error && retry1Data) {
+          insertedData = retry1Data;
+        } else {
+          console.log('Supabase Tier 2 Insert failed, trying Tier 3:', retry1Error);
+          // Tier 3 Insert: standard fields WITHOUT room_id (guaranteed on all Supabase setups)
+          const { data: retry2Data, error: retry2Error } = await supabase
+            .from('messages')
+            .insert({
+              user_id: user.id,
+              user_email: user.email,
+              content: messageContent,
+              file_url: uploadedFileUrl,
+              file_type: uploadedFileType,
+            })
+            .select();
+
+          if (!retry2Error && retry2Data) {
+            insertedData = retry2Data;
+          }
+        }
       }
 
       if (insertedData && insertedData[0]?.id) {
