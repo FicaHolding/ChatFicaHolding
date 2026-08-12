@@ -78,6 +78,12 @@ export default function ChatPage() {
   const [addFriendEmailInput, setAddFriendEmailInput] = useState('');
   const [addFriendSuccess, setAddFriendSuccess] = useState<string | null>(null);
 
+  // User Profiles Map (email -> { name, avatar_url }) for real-time name & photo lookup
+  const [userProfiles, setUserProfiles] = useState<{ [email: string]: { name?: string; avatar_url?: string } }>({
+    'huytq.ktv@gmail.com': { name: 'Trịnh Huy' },
+    'fica.holding@gmail.com': { name: 'Fica Admin' },
+  });
+
   // Search & Filter Tabs
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'all' | 'unread'>('all');
@@ -150,12 +156,28 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Load Friends list from localStorage
+  // Load Friends list from localStorage & sync to userProfiles
   useEffect(() => {
     try {
       const savedFriends = localStorage.getItem('fica_friends_list_v2');
       if (savedFriends) {
-        setFriendsList(JSON.parse(savedFriends));
+        const parsedFriends = JSON.parse(savedFriends) as Friend[];
+        setFriendsList(parsedFriends);
+
+        // Update profile lookup map
+        setUserProfiles((prev) => {
+          const updated = { ...prev };
+          parsedFriends.forEach((f) => {
+            if (f.email) {
+              const lower = f.email.toLowerCase().trim();
+              updated[lower] = {
+                name: f.name || updated[lower]?.name || f.email.split('@')[0],
+                avatar_url: f.avatar_url || updated[lower]?.avatar_url,
+              };
+            }
+          });
+          return updated;
+        });
       } else {
         const defaultFriends: Friend[] = [
           { email: 'fica.holding@gmail.com', name: 'Fica Admin' },
@@ -169,18 +191,93 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v11
+  // Universal Helper: Resolve Friend/User Display Name
+  const getDisplayNameForEmail = (email?: string | null, fallbackName?: string | null): string => {
+    if (!email) return fallbackName || 'Thành viên Fica';
+    const lowerEmail = email.toLowerCase().trim();
+
+    // Check my own profile
+    if (user?.email?.toLowerCase().trim() === lowerEmail && displayName) {
+      return displayName;
+    }
+
+    // Check friends list first
+    const friend = friendsList.find((f) => f.email.toLowerCase().trim() === lowerEmail);
+    if (friend && friend.name) return friend.name;
+
+    // Check user profiles cache
+    if (userProfiles[lowerEmail]?.name) return userProfiles[lowerEmail].name;
+
+    // Check fallbackName if it's not a raw email prefix
+    if (fallbackName && !fallbackName.includes('@') && !fallbackName.startsWith('Chat với')) {
+      return fallbackName;
+    }
+
+    return lowerEmail.split('@')[0];
+  };
+
+  // Universal Helper: Resolve Friend/User Avatar URL
+  const getAvatarForEmail = (email?: string | null): string | null => {
+    if (!email) return null;
+    const lowerEmail = email.toLowerCase().trim();
+
+    // Check my own avatar
+    if (user?.email?.toLowerCase().trim() === lowerEmail && avatarUrl) {
+      return avatarUrl;
+    }
+
+    // Check friends list
+    const friend = friendsList.find((f) => f.email.toLowerCase().trim() === lowerEmail);
+    if (friend?.avatar_url) return friend.avatar_url;
+
+    // Check user profiles cache
+    if (userProfiles[lowerEmail]?.avatar_url) return userProfiles[lowerEmail].avatar_url;
+
+    return null;
+  };
+
+  // Render User Avatar Photo with Initial Fallback
+  const renderUserAvatar = (
+    email?: string | null,
+    fallbackName?: string | null,
+    sizeClass = 'w-10 h-10 text-sm'
+  ) => {
+    const photoUrl = getAvatarForEmail(email);
+    const resolvedName = getDisplayNameForEmail(email, fallbackName || undefined);
+    const initial = resolvedName.charAt(0).toUpperCase();
+
+    if (photoUrl) {
+      return (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={photoUrl}
+          alt={resolvedName}
+          className={`${sizeClass} rounded-full object-cover shadow-xs border border-slate-200 shrink-0`}
+        />
+      );
+    }
+
+    return (
+      <div
+        className={`${sizeClass} rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shadow-xs shrink-0`}
+      >
+        {initial}
+      </div>
+    );
+  };
+
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v12
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
-      const targetFriend =
+      const targetFriendEmail =
         userEmail.toLowerCase() === 'huytq.ktv@gmail.com'
           ? 'fica.holding@gmail.com'
           : 'huytq.ktv@gmail.com';
-      const friendName =
+      const targetFriendName =
         userEmail.toLowerCase() === 'huytq.ktv@gmail.com' ? 'Fica Admin' : 'Trịnh Huy';
 
-      // Purge all legacy cache keys up to v10
+      // Purge all legacy cache keys up to v11
       const keysToPurge = [
         'fica_chat_rooms',
         'fica_chat_rooms_v2',
@@ -192,10 +289,11 @@ export default function ChatPage() {
         'fica_chat_rooms_v8',
         'fica_chat_rooms_v9',
         'fica_chat_rooms_v10',
+        'fica_chat_rooms_v11',
       ];
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v11');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v12');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -211,7 +309,7 @@ export default function ChatPage() {
         }
       }
 
-      // Default initial rooms displaying BOTH Group chats (with 👥) & Direct 1-1 Friend chats
+      // Default initial rooms displaying BOTH Group chats & Direct 1-1 Friend chats with proper display names
       const initialDefaultRooms: ChatRoom[] = [
         {
           id: 'room_ke_toan',
@@ -219,17 +317,17 @@ export default function ChatPage() {
           created_by: userEmail,
           isPrivate: true,
           vice_admins: [],
-          allowed_emails: [userEmail, targetFriend],
+          allowed_emails: [userEmail, targetFriendEmail],
           pinned: true,
         },
         {
           id: `direct_${Date.now()}`,
-          name: friendName,
+          name: targetFriendName,
           created_by: userEmail,
           isPrivate: true,
           isDirect: true,
-          direct_user_email: targetFriend,
-          allowed_emails: [userEmail, targetFriend],
+          direct_user_email: targetFriendEmail,
+          allowed_emails: [userEmail, targetFriendEmail],
         },
         {
           id: 'room_ky_thuat',
@@ -237,12 +335,12 @@ export default function ChatPage() {
           created_by: userEmail,
           isPrivate: true,
           vice_admins: [],
-          allowed_emails: [userEmail, targetFriend],
+          allowed_emails: [userEmail, targetFriendEmail],
         },
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v11', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v12', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -253,7 +351,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v11', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v12', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -305,7 +403,12 @@ export default function ChatPage() {
   // Filter rooms visible to current user
   const visibleRooms = rooms
     .filter((r) => canUserAccessRoom(r, user?.email))
-    .filter((r) => r.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    .filter((r) => {
+      const title = r.isDirect
+        ? getDisplayNameForEmail(r.direct_user_email, r.name)
+        : r.name;
+      return title.toLowerCase().includes(searchQuery.toLowerCase());
+    });
 
   // Filter friends list
   const filteredFriends = friendsList.filter(
@@ -367,6 +470,8 @@ export default function ChatPage() {
       return;
     }
 
+    const resolvedName = getDisplayNameForEmail(targetEmail, friendName);
+
     // Check if direct room already exists
     const existingDirect = rooms.find((r) => {
       if (!r.isDirect) return false;
@@ -375,7 +480,14 @@ export default function ChatPage() {
     });
 
     if (existingDirect) {
-      setActiveRoom(existingDirect);
+      // Ensure name is synced
+      if (existingDirect.name !== resolvedName) {
+        const updated = rooms.map((r) => (r.id === existingDirect.id ? { ...r, name: resolvedName } : r));
+        updateRoomsState(updated);
+        setActiveRoom({ ...existingDirect, name: resolvedName });
+      } else {
+        setActiveRoom(existingDirect);
+      }
       setActiveNavTab('chats');
       setShowMembersModal(false);
       setShowMobileSidebar(false);
@@ -383,10 +495,9 @@ export default function ChatPage() {
     }
 
     // Create new 1-on-1 Direct Chat Room
-    const displayNameForRoom = friendName || targetEmail.split('@')[0];
     const newDirectRoom: ChatRoom = {
       id: `direct_${Date.now()}`,
-      name: displayNameForRoom,
+      name: resolvedName,
       created_by: myEmail,
       isPrivate: true,
       isDirect: true,
@@ -419,13 +530,20 @@ export default function ChatPage() {
       return;
     }
 
+    const friendDisplayName = emailToAdd.split('@')[0];
     const newFriendObj: Friend = {
       email: emailToAdd,
-      name: emailToAdd.split('@')[0],
+      name: friendDisplayName,
     };
 
     const updatedFriends = [...friendsList, newFriendObj];
     setFriendsList(updatedFriends);
+
+    setUserProfiles((prev) => ({
+      ...prev,
+      [emailToAdd]: { name: friendDisplayName },
+    }));
+
     try {
       localStorage.setItem('fica_friends_list_v2', JSON.stringify(updatedFriends));
     } catch {
@@ -463,7 +581,19 @@ export default function ChatPage() {
         'Thành viên Fica';
       setDisplayName(name);
       setEditNameInput(name);
-      setAvatarUrl(currentUser.user_metadata?.avatar_url || null);
+      const myAvatar = currentUser.user_metadata?.avatar_url || null;
+      setAvatarUrl(myAvatar);
+
+      // Cache my profile
+      if (currentUser.email) {
+        setUserProfiles((prev) => ({
+          ...prev,
+          [currentUser.email!.toLowerCase().trim()]: {
+            name,
+            avatar_url: myAvatar || undefined,
+          },
+        }));
+      }
 
       if (!activeRoom) {
         setMessages([]);
@@ -481,6 +611,24 @@ export default function ChatPage() {
         const filtered = (data as Message[]).filter((m) => {
           const roomOfMsg = getMessageRoomId(m, activeRoom.id);
           return roomOfMsg === activeRoom.id;
+        });
+
+        // Also extract sender avatars from message history
+        filtered.forEach((m) => {
+          if (m.user_email && (m.user_name || m.user_avatar)) {
+            const lower = m.user_email.toLowerCase().trim();
+            setUserProfiles((prev) => {
+              if (prev[lower]?.avatar_url === m.user_avatar && prev[lower]?.name === m.user_name)
+                return prev;
+              return {
+                ...prev,
+                [lower]: {
+                  name: m.user_name || prev[lower]?.name || lower.split('@')[0],
+                  avatar_url: m.user_avatar || prev[lower]?.avatar_url,
+                },
+              };
+            });
+          }
         });
 
         setMessages((prev) => {
@@ -506,6 +654,18 @@ export default function ChatPage() {
           (payload) => {
             const newMessage = payload.new as Message;
             const msgRoomId = getMessageRoomId(newMessage, activeRoom.id);
+
+            // Dynamically update sender avatar profile cache
+            if (newMessage.user_email && (newMessage.user_name || newMessage.user_avatar)) {
+              const lower = newMessage.user_email.toLowerCase().trim();
+              setUserProfiles((prev) => ({
+                ...prev,
+                [lower]: {
+                  name: newMessage.user_name || prev[lower]?.name || lower.split('@')[0],
+                  avatar_url: newMessage.user_avatar || prev[lower]?.avatar_url,
+                },
+              }));
+            }
 
             if (activeRoom && (msgRoomId === activeRoom.id || !newMessage.room_id)) {
               setMessages((prev) => {
@@ -582,6 +742,17 @@ export default function ChatPage() {
         setUser(data.user);
         setDisplayName(editNameInput.trim());
         setAvatarUrl(updatedAvatarPublicUrl);
+
+        if (user.email) {
+          setUserProfiles((prev) => ({
+            ...prev,
+            [user.email!.toLowerCase().trim()]: {
+              name: editNameInput.trim(),
+              avatar_url: updatedAvatarPublicUrl || undefined,
+            },
+          }));
+        }
+
         setProfileSuccess('Đã cập nhật tên và ảnh đại diện thành công!');
         setTimeout(() => {
           setShowProfileModal(false);
@@ -980,7 +1151,7 @@ export default function ChatPage() {
         reply_to: replyTarget
           ? {
               id: replyTarget.id,
-              user_name: replyTarget.user_name || replyTarget.user_email,
+              user_name: getDisplayNameForEmail(replyTarget.user_email, replyTarget.user_name),
               content: replyTarget.content,
             }
           : null,
@@ -1019,6 +1190,7 @@ export default function ChatPage() {
           user_id: user.id,
           user_email: user.email,
           user_name: displayName,
+          user_avatar: avatarUrl,
           content: messageContent,
           file_url: uploadedFileUrl,
           file_type: uploadedFileType,
@@ -1116,18 +1288,7 @@ export default function ChatPage() {
               className="relative group transition hover:scale-105"
               title="Đổi ảnh đại diện / Tài khoản"
             >
-              {avatarUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={avatarUrl}
-                  alt={displayName}
-                  className="w-10 h-10 rounded-full object-cover border-2 border-white/80 shadow-md"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-blue-600 border-2 border-white/80 flex items-center justify-center text-white font-bold text-sm shadow-md">
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
-              )}
+              {renderUserAvatar(user?.email, displayName, 'w-10 h-10 border-2 border-white/80')}
               <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#001a33] rounded-full"></span>
             </button>
 
@@ -1287,14 +1448,9 @@ export default function ChatPage() {
                     const isActive = activeRoom && room.id === activeRoom.id;
                     const isDirectChat = room.isDirect;
 
-                    let displayNameToShow = room.name;
-                    if (isDirectChat) {
-                      if (room.direct_user_email) {
-                        displayNameToShow = room.direct_user_email.split('@')[0];
-                      } else {
-                        displayNameToShow = room.name.replace(/^Chat với\s*/i, '');
-                      }
-                    }
+                    const displayNameToShow = isDirectChat
+                      ? getDisplayNameForEmail(room.direct_user_email, room.name)
+                      : room.name;
 
                     return (
                       <div
@@ -1312,10 +1468,8 @@ export default function ChatPage() {
                         {/* Avatar */}
                         <div className="relative shrink-0">
                           {isDirectChat ? (
-                            /* Direct 1-on-1 Personal Avatar */
-                            <div className="w-12 h-12 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-                              {displayNameToShow.charAt(0).toUpperCase()}
-                            </div>
+                            /* Direct 1-on-1 Personal Avatar with photo sync */
+                            renderUserAvatar(room.direct_user_email, room.name, 'w-12 h-12 text-sm')
                           ) : (
                             /* Group Chat Avatar */
                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 via-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
@@ -1403,11 +1557,11 @@ export default function ChatPage() {
                       className="flex items-center justify-between p-2.5 hover:bg-blue-50/60 rounded-xl transition gap-2"
                     >
                       <div className="flex items-center gap-2.5 truncate min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-xs shrink-0">
-                          {friend.name.charAt(0).toUpperCase()}
-                        </div>
+                        {renderUserAvatar(friend.email, friend.name, 'w-10 h-10 text-xs')}
                         <div className="truncate min-w-0">
-                          <p className="text-xs font-bold text-slate-800 truncate">{friend.name}</p>
+                          <p className="text-xs font-bold text-slate-800 truncate">
+                            {getDisplayNameForEmail(friend.email, friend.name)}
+                          </p>
                           <p className="text-[10px] text-slate-400 truncate">{friend.email}</p>
                         </div>
                       </div>
@@ -1445,13 +1599,21 @@ export default function ChatPage() {
                     <Menu className="w-5 h-5" />
                   </button>
 
-                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm shrink-0">
-                    {activeRoom.name.charAt(0).toUpperCase()}
-                  </div>
+                  {activeRoom.isDirect ? (
+                    renderUserAvatar(activeRoom.direct_user_email, activeRoom.name, 'w-10 h-10 text-sm')
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm shrink-0">
+                      {activeRoom.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
 
                   <div>
                     <h2 className="font-bold text-sm text-slate-800 flex items-center gap-2">
-                      <span>{activeRoom.name}</span>
+                      <span>
+                        {activeRoom.isDirect
+                          ? getDisplayNameForEmail(activeRoom.direct_user_email, activeRoom.name)
+                          : activeRoom.name}
+                      </span>
                       {activeRoom.isDirect ? (
                         <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold border border-blue-200">
                           Chat riêng 1-1
@@ -1540,8 +1702,10 @@ export default function ChatPage() {
                 ) : (
                   messages.map((msg) => {
                     const isMe = msg.user_id === user?.id;
-                    const senderDisplayName =
-                      msg.user_name || msg.user_email?.split('@')[0] || msg.user_email;
+                    const senderDisplayName = getDisplayNameForEmail(
+                      msg.user_email,
+                      msg.user_name || undefined
+                    );
 
                     return (
                       <div
@@ -1550,18 +1714,11 @@ export default function ChatPage() {
                           isMe ? 'flex-row-reverse' : 'flex-row'
                         }`}
                       >
-                        {/* Sender Avatar Photo */}
-                        {isMe && avatarUrl ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={avatarUrl}
-                            alt={displayName}
-                            className="w-8 h-8 rounded-full object-cover shrink-0 shadow-sm mt-1 border border-slate-300"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm mt-1">
-                            {senderDisplayName.charAt(0).toUpperCase()}
-                          </div>
+                        {/* Sender Avatar Photo (Syncs for both Me and Friend) */}
+                        {renderUserAvatar(
+                          msg.user_email,
+                          senderDisplayName,
+                          'w-8 h-8 text-xs mt-1 border border-slate-300'
                         )}
 
                         <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[75%]`}>
@@ -1585,7 +1742,7 @@ export default function ChatPage() {
                               {msg.reply_to && (
                                 <div className="p-2 bg-slate-100/90 rounded-lg border-l-4 border-blue-600 text-xs space-y-0.5 mb-1">
                                   <p className="font-bold text-blue-600 text-[11px]">
-                                    {msg.reply_to.user_name}
+                                    {getDisplayNameForEmail(undefined, msg.reply_to.user_name)}
                                   </p>
                                   <p className="text-slate-600 line-clamp-2 text-[11px]">
                                     {msg.reply_to.content}
@@ -1704,7 +1861,7 @@ export default function ChatPage() {
                     <CornerUpLeft className="w-4 h-4 text-blue-600 shrink-0" />
                     <div className="truncate">
                       <span className="font-bold text-blue-900">
-                        Trả lời {replyTarget.user_name || replyTarget.user_email}:
+                        Trả lời {getDisplayNameForEmail(replyTarget.user_email, replyTarget.user_name)}:
                       </span>{' '}
                       <span className="text-slate-600 italic truncate">{replyTarget.content}</span>
                     </div>
@@ -1725,17 +1882,17 @@ export default function ChatPage() {
                   {activeRoom.allowed_emails.map((emailStr) => (
                     <button
                       key={emailStr}
-                      onClick={() => handleSelectMention(emailStr.split('@')[0])}
+                      onClick={() => handleSelectMention(getDisplayNameForEmail(emailStr))}
                       className="w-full text-left px-2 py-1.5 hover:bg-blue-50 rounded-lg text-xs text-slate-700 flex items-center gap-2"
                     >
                       <AtSign className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{emailStr}</span>
+                      <span>{getDisplayNameForEmail(emailStr)} ({emailStr})</span>
                     </button>
                   ))}
                 </div>
               )}
 
-              {/* Emoji Picker Popup Panel (FIXED - Zalo Style) */}
+              {/* Emoji Picker Popup Panel */}
               {showEmoji && (
                 <div className="absolute bottom-20 left-4 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-30 w-80 space-y-2">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
@@ -1839,7 +1996,11 @@ export default function ChatPage() {
                     type="text"
                     value={inputText}
                     onChange={handleInputChange}
-                    placeholder={`Nhập @, tin nhắn tới ${activeRoom.name}...`}
+                    placeholder={`Nhập @, tin nhắn tới ${
+                      activeRoom.isDirect
+                        ? getDisplayNameForEmail(activeRoom.direct_user_email, activeRoom.name)
+                        : activeRoom.name
+                    }...`}
                     className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
                   />
 
@@ -1877,13 +2038,21 @@ export default function ChatPage() {
                 </h3>
 
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-md">
-                    {activeRoom.name.charAt(0).toUpperCase()}
-                  </div>
+                  {activeRoom.isDirect ? (
+                    renderUserAvatar(activeRoom.direct_user_email, activeRoom.name, 'w-16 h-16 text-xl shadow-md')
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-md">
+                      {activeRoom.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
 
-                  {/* Group Name & Rename Button (Pencil Icon ✎) */}
+                  {/* Group / Direct Name & Rename Button (Pencil Icon ✎) */}
                   <div className="flex items-center gap-1 justify-center">
-                    <h4 className="font-bold text-sm text-slate-900">{activeRoom.name}</h4>
+                    <h4 className="font-bold text-sm text-slate-900">
+                      {activeRoom.isDirect
+                        ? getDisplayNameForEmail(activeRoom.direct_user_email, activeRoom.name)
+                        : activeRoom.name}
+                    </h4>
                     {!activeRoom.isDirect && (
                       <button
                         onClick={() => {
@@ -1979,10 +2148,10 @@ export default function ChatPage() {
                       return (
                         <div key={idx} className="flex items-center justify-between text-xs">
                           <div className="flex items-center gap-2 truncate">
-                            <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
-                              {emailStr.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="text-slate-700 truncate">{emailStr}</span>
+                            {renderUserAvatar(emailStr, undefined, 'w-6 h-6 text-[10px]')}
+                            <span className="text-slate-700 truncate">
+                              {getDisplayNameForEmail(emailStr)}
+                            </span>
                           </div>
 
                           <div className="flex items-center gap-1">
@@ -2501,10 +2670,10 @@ export default function ChatPage() {
                     className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs gap-3"
                   >
                     <div className="flex items-center gap-2 truncate min-w-0 flex-1">
-                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                        {member.user_email.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-slate-800 font-semibold truncate">{member.user_email}</span>
+                      {renderUserAvatar(member.user_email, undefined, 'w-7 h-7 text-xs')}
+                      <span className="text-slate-800 font-semibold truncate">
+                        {getDisplayNameForEmail(member.user_email)} ({member.user_email})
+                      </span>
 
                       {/* Badges */}
                       {isOwner && (
