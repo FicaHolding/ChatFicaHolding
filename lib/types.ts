@@ -7,6 +7,12 @@ export interface Message {
   file_url?: string | null;
   file_type?: string | null; // 'image' | 'file'
   room_id?: string;
+  reply_to?: {
+    id: string;
+    user_name: string;
+    content: string;
+  } | null;
+  reactions?: { [emoji: string]: string[] }; // Map emoji string to array of user emails
   created_at: string;
 }
 
@@ -17,6 +23,8 @@ export interface ChatRoom {
   isPrivate?: boolean;
   vice_admins?: string[]; // Danh sách Email Phó nhóm
   allowed_emails?: string[]; // Danh sách Email thành viên trong nhóm
+  pinned?: boolean;
+  avatar_color?: string;
 }
 
 export interface RoomMember {

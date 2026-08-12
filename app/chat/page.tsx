@@ -28,11 +28,33 @@ import {
   Trash2,
   Crown,
   Award,
-  UserCheck2,
   AlertTriangle,
+  Search,
+  Image as ImageIcon,
+  Pin,
+  PinOff,
+  PanelRight,
+  PanelRightClose,
+  Video,
+  Folder,
+  Cloud,
+  Contact2,
+  HelpCircle,
+  Settings,
+  AtSign,
+  ThumbsUp,
+  CornerUpLeft,
+  ChevronDown,
+  Edit2,
+  Bell,
+  BellOff,
+  Share2,
+  MoreHorizontal,
+  FileCode,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 const GLOBAL_SUPER_ADMIN = 'fica.holding@gmail.com';
 
 export default function ChatPage() {
@@ -44,6 +66,19 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
 
+  // Search & Filter Tabs
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterTab, setFilterTab] = useState<'all' | 'unread'>('all');
+
+  // Right Panel & Sidebar Toggles
+  const [showRightPanel, setShowRightPanel] = useState(true);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>({});
+
+  // Reply & Mention States
+  const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+  const [showMentionPopup, setShowMentionPopup] = useState(false);
+
   // Profile modal state
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editNameInput, setEditNameInput] = useState('');
@@ -53,7 +88,6 @@ export default function ChatPage() {
   // Rooms state (persisted in localStorage)
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
-  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
 
   // Create new room modal
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
@@ -110,7 +144,7 @@ export default function ChatPage() {
       ];
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v6');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v7');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -130,11 +164,12 @@ export default function ChatPage() {
       const initialDefaultRooms: ChatRoom[] = [
         {
           id: 'room_ke_toan',
-          name: 'Phòng Kế Toán',
+          name: 'HOLDING SHK - KẾ TOÁN',
           created_by: userEmail,
           isPrivate: true,
           vice_admins: [],
           allowed_emails: [userEmail],
+          pinned: true,
         },
         {
           id: 'room_kinh_doanh',
@@ -146,7 +181,7 @@ export default function ChatPage() {
         },
         {
           id: 'room_ky_thuat',
-          name: 'Phòng Kỹ Thuật',
+          name: 'Thanh niên quậy - quẩy eco',
           created_by: userEmail,
           isPrivate: true,
           vice_admins: [],
@@ -155,7 +190,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v6', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v7', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -166,7 +201,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v6', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v7', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -190,7 +225,6 @@ export default function ChatPage() {
   };
 
   // Strict check if a user can see and enter a specific room
-  // fica.holding@gmail.com is NOT auto-added; only enters if added by room owner!
   const canUserAccessRoom = (room: ChatRoom, userEmail?: string | null): boolean => {
     if (!userEmail || room.id === 'general') return false;
     const email = userEmail.toLowerCase().trim();
@@ -202,8 +236,10 @@ export default function ChatPage() {
     return false;
   };
 
-  // Rooms visible to current user
-  const visibleRooms = rooms.filter((r) => canUserAccessRoom(r, user?.email));
+  // Filter rooms visible to current user
+  const visibleRooms = rooms
+    .filter((r) => canUserAccessRoom(r, user?.email))
+    .filter((r) => r.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Set default active room based on user access
   useEffect(() => {
@@ -216,7 +252,7 @@ export default function ChatPage() {
     }
   }, [user, visibleRooms, activeRoom]);
 
-  // Helper to resolve a message's room_id with local fallback persistence
+  // Helper to resolve a message's room_id
   const getMessageRoomId = (msg: Message): string => {
     if (msg.room_id) return msg.room_id;
     try {
@@ -481,6 +517,12 @@ export default function ChatPage() {
     );
   };
 
+  // Toggle Pin Room
+  const handleTogglePinRoom = (roomId: string) => {
+    const updated = rooms.map((r) => (r.id === roomId ? { ...r, pinned: !r.pinned } : r));
+    updateRoomsState(updated);
+  };
+
   // Remove member from group
   const handleRemoveMember = async (emailToRemove: string) => {
     if (!activeRoom) return;
@@ -513,7 +555,59 @@ export default function ChatPage() {
     }
   };
 
-  // Create New Chat Room (ONLY creator is in allowed_emails! DO NOT AUTO ADD fica.holding@gmail.com)
+  // Toggle Reaction on a message
+  const handleAddReaction = (msgId: string, emoji: string) => {
+    if (!user) return;
+    const userEmail = user.email || '';
+
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id === msgId) {
+          const currentReactions = msg.reactions || {};
+          const currentList = currentReactions[emoji] || [];
+          const hasReacted = currentList.includes(userEmail);
+
+          const newList = hasReacted
+            ? currentList.filter((e) => e !== userEmail)
+            : [...currentList, userEmail];
+
+          return {
+            ...msg,
+            reactions: {
+              ...currentReactions,
+              [emoji]: newList,
+            },
+          };
+        }
+        return msg;
+      })
+    );
+  };
+
+  // Handle Input `@` Mentions Suggestion
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    if (val.endsWith('@')) {
+      setShowMentionPopup(true);
+    } else if (!val.includes('@')) {
+      setShowMentionPopup(false);
+    }
+  };
+
+  const handleSelectMention = (targetName: string) => {
+    setInputText((prev) => {
+      const lastAtIndex = prev.lastIndexOf('@');
+      if (lastAtIndex !== -1) {
+        return prev.substring(0, lastAtIndex) + `@${targetName} `;
+      }
+      return prev + `@${targetName} `;
+    });
+    setShowMentionPopup(false);
+  };
+
+  // Create New Chat Room
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim() || !user) return;
@@ -527,7 +621,7 @@ export default function ChatPage() {
       created_by: creatorEmail,
       isPrivate: true,
       vice_admins: [],
-      allowed_emails: [creatorEmail], // ONLY creator!
+      allowed_emails: [creatorEmail],
     };
 
     const updated = [...rooms, newRoom];
@@ -635,15 +729,20 @@ export default function ChatPage() {
     setShowEmoji(false);
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeRoom || (!inputText.trim() && !selectedFile) || sending || !user) return;
+  // Quick Like 👍 Button
+  const handleSendLike = () => {
+    setInputText('👍');
+    handleSendMessageDirect('👍');
+  };
+
+  const handleSendMessageDirect = async (overrideText?: string) => {
+    const messageContent = (overrideText !== undefined ? overrideText : inputText).trim();
+    if (!activeRoom || (!messageContent && !selectedFile) || sending || !user) return;
 
     setSending(true);
     let uploadedFileUrl: string | null = null;
     const uploadedFileType: 'image' | 'file' | null = fileType;
     const currentRoomId = activeRoom.id;
-    const messageContent = inputText.trim();
 
     try {
       if (selectedFile) {
@@ -679,17 +778,18 @@ export default function ChatPage() {
         file_url: uploadedFileUrl,
         file_type: uploadedFileType,
         room_id: currentRoomId,
+        reply_to: replyTarget
+          ? {
+              id: replyTarget.id,
+              user_name: replyTarget.user_name || replyTarget.user_email,
+              content: replyTarget.content,
+            }
+          : null,
         created_at: new Date().toISOString(),
       };
 
       try {
         localStorage.setItem(`fica_msg_room_${tempId}`, currentRoomId);
-        if (messageContent) {
-          localStorage.setItem(
-            `fica_msg_content_${encodeURIComponent(messageContent.substring(0, 30))}`,
-            currentRoomId
-          );
-        }
       } catch {
         // Ignore
       }
@@ -705,6 +805,7 @@ export default function ChatPage() {
       });
 
       setInputText('');
+      setReplyTarget(null);
       handleClearFile();
 
       let { data: insertedData, error: insertError } = await supabase
@@ -720,42 +821,15 @@ export default function ChatPage() {
         })
         .select();
 
-      if (
-        insertError &&
-        (insertError.message.includes('room_id') ||
-          insertError.message.includes('user_name') ||
-          insertError.message.includes('schema cache'))
-      ) {
-        const { data: retryData, error: retryError } = await supabase
-          .from('messages')
-          .insert({
-            user_id: user.id,
-            user_email: user.email,
-            content: messageContent,
-            file_url: uploadedFileUrl,
-            file_type: uploadedFileType,
-          })
-          .select();
-
-        insertedData = retryData;
-        insertError = retryError;
-      }
-
-      if (insertedData && insertedData[0]?.id) {
+      if (insertError) {
+        console.error('Lỗi gửi tin nhắn:', insertError);
+      } else if (insertedData && insertedData[0]?.id) {
         const realId = insertedData[0].id;
         try {
           localStorage.setItem(`fica_msg_room_${realId}`, currentRoomId);
         } catch {
           // Ignore
         }
-
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...insertedData[0], room_id: currentRoomId } : m))
-        );
-      }
-
-      if (insertError) {
-        console.error('Lỗi gửi tin nhắn:', insertError);
       }
     } catch (err: unknown) {
       console.error('Lỗi:', err);
@@ -764,203 +838,313 @@ export default function ChatPage() {
     }
   };
 
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSendMessageDirect();
+  };
+
+  // Helper to render mentions in blue text
+  const renderMessageContent = (content: string) => {
+    if (!content) return null;
+
+    const parts = content.split(/(@[\w.À-ỹ]+|@All)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('@')) {
+        return (
+          <span key={i} className="font-bold text-blue-600 bg-blue-50 px-1 py-0.5 rounded">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 max-w-7xl mx-auto w-full border-x border-slate-800 shadow-2xl overflow-hidden">
-      {/* Sidebar - Rooms List */}
+    <div className="flex h-screen bg-[#eef0f3] text-slate-800 max-w-[1600px] mx-auto w-full shadow-2xl overflow-hidden font-sans select-none">
+      {/* ========================================================================= */}
+      {/* COLUMN 1: LEFTMOST ICON NAV BAR (Zalo Dark Blue #001a33) */}
+      {/* ========================================================================= */}
+      <nav className="w-16 bg-[#001a33] flex flex-col items-center py-4 justify-between shrink-0 z-20">
+        <div className="flex flex-col items-center gap-6">
+          {/* User Avatar */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="relative group transition hover:scale-105"
+            title="Tài khoản cá nhân"
+          >
+            <div className="w-10 h-10 rounded-full bg-blue-600 border-2 border-white/80 flex items-center justify-center text-white font-bold text-sm shadow-md">
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+            <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#001a33] rounded-full"></span>
+          </button>
+
+          {/* Navigation Items */}
+          <div className="flex flex-col items-center gap-4 w-full">
+            <button
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-white bg-blue-600 shadow-lg shadow-blue-600/30 transition"
+              title="Tin nhắn"
+            >
+              <MessageSquare className="w-6 h-6" />
+            </button>
+
+            <button
+              onClick={handleOpenMembersModal}
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-blue-200/60 hover:text-white hover:bg-white/10 transition"
+              title="Danh bạ / Thành viên"
+            >
+              <Contact2 className="w-6 h-6" />
+            </button>
+
+            <button
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-blue-200/60 hover:text-white hover:bg-white/10 transition"
+              title="Cloud của tôi"
+            >
+              <Cloud className="w-6 h-6" />
+            </button>
+
+            <button
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-blue-200/60 hover:text-white hover:bg-white/10 transition"
+              title="Quản lý File"
+            >
+              <Folder className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Bottom System Action Icons */}
+        <div className="flex flex-col items-center gap-4 w-full">
+          <button
+            onClick={() => {
+              setShowPasswordModal(true);
+              setPasswordError(null);
+              setPasswordSuccess(null);
+            }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-200/60 hover:text-white hover:bg-white/10 transition"
+            title="Đổi mật khẩu / Cài đặt"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-200/60 hover:text-red-400 hover:bg-white/10 transition"
+            title="Đăng xuất"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+      </nav>
+
+      {/* ========================================================================= */}
+      {/* COLUMN 2: CHAT ROOMS LIST COLUMN (320px Width) */}
+      {/* ========================================================================= */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 md:static md:translate-x-0 ${
-          showMobileSidebar ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        className={`w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 transition-transform duration-300 md:static ${
+          showMobileSidebar ? 'fixed inset-y-0 left-16 z-40 shadow-2xl' : 'hidden md:flex'
         }`}
       >
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-              <MessageSquare className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-bold text-sm text-white flex items-center gap-1">
-                <span>Fica Holding Chat</span>
-              </h2>
-              <p className="text-[10px] text-slate-400">Phòng chat công ty</p>
-            </div>
+        {/* Top Search Bar & Actions */}
+        <div className="p-3 border-b border-slate-100 flex items-center gap-2">
+          <div className="flex-1 relative flex items-center">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm kiếm"
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-100 rounded-lg text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
           </div>
-          <button
-            onClick={() => setShowMobileSidebar(false)}
-            className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        {/* Create Room Button */}
-        <div className="p-3">
           <button
             onClick={() => setShowCreateRoomModal(true)}
-            className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition"
+            className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+            title="Tạo nhóm mới"
           >
-            <Plus className="w-4 h-4" />
-            <span>Tạo phòng chat mới</span>
+            <UserPlus className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Rooms Scroll List strictly filtered for allowed rooms only */}
-        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-          <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            Phòng của tôi ({visibleRooms.length})
-          </p>
+        {/* Tab Filters: Tất cả | Chưa đọc */}
+        <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setFilterTab('all')}
+              className={`pb-1 border-b-2 transition ${
+                filterTab === 'all'
+                  ? 'border-blue-600 text-blue-600 font-bold'
+                  : 'border-transparent hover:text-slate-800'
+              }`}
+            >
+              Tất cả
+            </button>
+            <button
+              onClick={() => setFilterTab('unread')}
+              className={`pb-1 border-b-2 transition ${
+                filterTab === 'unread'
+                  ? 'border-blue-600 text-blue-600 font-bold'
+                  : 'border-transparent hover:text-slate-800'
+              }`}
+            >
+              Chưa đọc
+            </button>
+          </div>
+          <button className="text-slate-400 hover:text-slate-600 text-[11px] flex items-center gap-1">
+            <span>Phân loại</span>
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Chat Rooms Scrollable Feed */}
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
           {visibleRooms.length === 0 ? (
-            <div className="p-4 text-center text-xs text-slate-500 space-y-1">
-              <p>Chưa tham gia phòng nào.</p>
-              <p className="text-[11px] text-slate-600">Bấm nút trên để tạo phòng mới!</p>
+            <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+              <p>Chưa có cuộc trò chuyện nào.</p>
+              <button
+                onClick={() => setShowCreateRoomModal(true)}
+                className="text-blue-600 font-semibold underline"
+              >
+                + Tạo nhóm mới ngay
+              </button>
             </div>
           ) : (
             visibleRooms.map((room) => {
               const isActive = activeRoom && room.id === activeRoom.id;
-              const isOwnerOfRoom = isRoomOwner(room, user?.email);
-              const isViceOfRoom = isViceAdmin(room, user?.email);
 
               return (
-                <button
+                <div
                   key={room.id}
                   onClick={() => {
                     setActiveRoom(room);
                     setShowMobileSidebar(false);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
+                  className={`flex items-center gap-3 p-3 cursor-pointer transition relative group ${
                     isActive
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                      ? 'bg-blue-50/80 border-l-4 border-blue-600'
+                      : 'hover:bg-slate-50 border-l-4 border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <Lock className={`w-4 h-4 ${isActive ? 'text-white' : 'text-indigo-400'}`} />
-                    <span className="truncate">{room.name}</span>
+                  {/* Group Avatar */}
+                  <div className="relative shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
+                      {room.name.charAt(0).toUpperCase()}
+                    </div>
+                    {room.pinned && (
+                      <div className="absolute -top-1 -right-1 p-0.5 bg-slate-200 text-slate-600 rounded-full border border-white">
+                        <Pin className="w-2.5 h-2.5 fill-current" />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    {isOwnerOfRoom && (
-                      <span className="p-0.5 text-amber-400" title="Trưởng nhóm">
-                        <Crown className="w-3.5 h-3.5" />
-                      </span>
-                    )}
-                    {isViceOfRoom && (
-                      <span className="p-0.5 text-sky-400" title="Phó nhóm">
-                        <Award className="w-3.5 h-3.5" />
-                      </span>
-                    )}
-                    {isActive && <ChevronRight className="w-4 h-4 text-white/80" />}
+                  {/* Room Details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <h4
+                        className={`text-xs font-semibold truncate ${
+                          isActive ? 'text-blue-900 font-bold' : 'text-slate-800'
+                        }`}
+                      >
+                        {room.name}
+                      </h4>
+                      <span className="text-[10px] text-slate-400 shrink-0">10:45</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                      {room.allowed_emails && room.allowed_emails.length > 0
+                        ? `${room.allowed_emails.length} thành viên`
+                        : 'Bắt đầu cuộc trò chuyện...'}
+                    </p>
                   </div>
-                </button>
+
+                  {/* Pin Room Action */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTogglePinRoom(room.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600 transition"
+                    title={room.pinned ? 'Bỏ ghim' : 'Ghim hội thoại'}
+                  >
+                    {room.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               );
             })
           )}
         </div>
-
-        {/* User Info Bottom Footer */}
-        <div className="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between">
-          <button
-            onClick={() => setShowProfileModal(true)}
-            className="flex items-center gap-2.5 text-left min-w-0 flex-1 hover:opacity-80 transition"
-            title="Đổi tên hiển thị"
-          >
-            <div className="p-1.5 bg-indigo-600/20 text-indigo-400 rounded-lg shrink-0 border border-indigo-500/30">
-              <User className="w-4 h-4" />
-            </div>
-            <div className="truncate min-w-0">
-              <p className="text-xs font-semibold text-white truncate">{displayName}</p>
-              <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
-            </div>
-          </button>
-        </div>
       </aside>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col h-full min-w-0 bg-slate-950">
+      {/* ========================================================================= */}
+      {/* COLUMN 3: MAIN CHAT FEED WINDOW (Central Flex-1) */}
+      {/* ========================================================================= */}
+      <main className="flex-1 flex flex-col h-full bg-[#f4f5f7] min-w-0 border-r border-slate-200">
         {activeRoom ? (
           <>
-            {/* Main Header */}
-            <header className="flex items-center justify-between px-4 sm:px-6 py-4 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md sticky top-0 z-10">
+            {/* Top Bar Header */}
+            <header className="h-16 px-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-sm">
               <div className="flex items-center gap-3">
-                {/* Mobile Menu Button */}
                 <button
                   onClick={() => setShowMobileSidebar(true)}
-                  className="md:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+                  className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
                 >
                   <Menu className="w-5 h-5" />
                 </button>
 
-                <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-                  <Lock className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm shrink-0">
+                  {activeRoom.name.charAt(0).toUpperCase()}
                 </div>
+
                 <div>
-                  <h1 className="font-bold text-base sm:text-lg text-white flex items-center gap-2">
+                  <h2 className="font-bold text-sm text-slate-800 flex items-center gap-2">
                     <span>{activeRoom.name}</span>
-                    {isRoomOwner(activeRoom, user?.email) ? (
-                      <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                        <Crown className="w-3 h-3 text-amber-400" />
-                        Trưởng nhóm
-                      </span>
-                    ) : isViceAdmin(activeRoom, user?.email) ? (
-                      <span className="text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                        <Award className="w-3 h-3 text-sky-400" />
-                        Phó nhóm
-                      </span>
-                    ) : (
-                      <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
-                        Phòng riêng
+                    {isRoomOwner(activeRoom, user?.email) && (
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold border border-amber-300">
+                        👑 Trưởng nhóm
                       </span>
                     )}
-                  </h1>
-                  <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Realtime Active
+                  </h2>
+                  <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <Users className="w-3 h-3 text-slate-400" />
+                    <span>{(activeRoom.allowed_emails || []).length} thành viên</span>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 sm:gap-3">
-                {/* Delete Room Button */}
+              {/* Action Tools Header Icons */}
+              <div className="flex items-center gap-1 sm:gap-2">
                 <button
-                  onClick={() => setShowDeleteRoomModal(true)}
-                  className="p-2 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 border border-transparent rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
-                  title="Giải tán nhóm"
-                >
-                  <Trash2 className="w-4 h-4 text-red-400" />
-                  <span className="hidden sm:inline">Giải tán nhóm</span>
-                </button>
-
-                {/* Member Management Button */}
-                <button
+                  className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                  title="Thêm thành viên"
                   onClick={handleOpenMembersModal}
-                  className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
-                  title="Thành viên & Phó nhóm"
                 >
-                  <Users className="w-4 h-4 text-indigo-400" />
-                  <span className="hidden sm:inline">Thành viên</span>
+                  <UserPlus className="w-5 h-5" />
                 </button>
 
-                {/* Change Password Button */}
                 <button
-                  onClick={() => {
-                    setShowPasswordModal(true);
-                    setPasswordError(null);
-                    setPasswordSuccess(null);
-                  }}
-                  className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium border border-transparent hover:border-slate-700"
-                  title="Thay đổi mật khẩu"
+                  className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                  title="Cuộc gọi thoại/video"
                 >
-                  <Key className="w-4 h-4 text-indigo-400" />
-                  <span className="hidden sm:inline">Đổi mật khẩu</span>
+                  <Video className="w-5 h-5" />
                 </button>
 
-                {/* Logout Button */}
                 <button
-                  onClick={handleLogout}
-                  className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
-                  title="Đăng xuất"
+                  className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                  title="Tìm kiếm tin nhắn"
                 >
-                  <LogOut className="w-4 h-4" />
-                  <span className="hidden sm:inline">Đăng xuất</span>
+                  <Search className="w-5 h-5" />
+                </button>
+
+                {/* Right Panel Toggle Button */}
+                <button
+                  onClick={() => setShowRightPanel((prev) => !prev)}
+                  className={`p-2 rounded-lg transition ${
+                    showRightPanel
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'text-slate-600 hover:text-blue-600 hover:bg-slate-100'
+                  }`}
+                  title="Thông tin nhóm"
+                >
+                  <PanelRight className="w-5 h-5" />
                 </button>
               </div>
             </header>
@@ -968,20 +1152,25 @@ export default function ChatPage() {
             {/* PWA Mobile Install Banner */}
             <InstallPWA />
 
-            {/* Messages Feed */}
-            <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+            {/* Messages Feed Stream */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {/* Date Separator Pill */}
+              <div className="flex justify-center">
+                <span className="px-3 py-1 bg-slate-200/80 text-slate-600 rounded-full text-[11px] font-semibold">
+                  Hôm nay
+                </span>
+              </div>
+
               {loading ? (
                 <div className="h-full flex items-center justify-center text-slate-400 gap-2">
-                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-                  <span className="text-xs">Đang tải tin nhắn {activeRoom.name}...</span>
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                  <span className="text-xs">Đang tải tin nhắn...</span>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-2 py-12">
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2 py-12">
                   <MessageSquare className="w-12 h-12 stroke-[1.5]" />
-                  <p className="text-sm font-medium text-slate-400">
-                    Chưa có tin nhắn nào trong {activeRoom.name}.
-                  </p>
-                  <p className="text-xs text-slate-600">Hãy bắt đầu cuộc trò chuyện ngay!</p>
+                  <p className="text-sm font-medium text-slate-600">Chưa có tin nhắn nào.</p>
+                  <p className="text-xs text-slate-400">Hãy là người đầu tiên lên tiếng!</p>
                 </div>
               ) : (
                 messages.map((msg) => {
@@ -992,359 +1181,465 @@ export default function ChatPage() {
                   return (
                     <div
                       key={msg.id}
-                      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}
+                      className={`flex items-start gap-2.5 group ${
+                        isMe ? 'flex-row-reverse' : 'flex-row'
+                      }`}
                     >
-                      <span className="text-[11px] text-slate-400 px-1">
-                        <strong className="font-semibold text-slate-300">
-                          {isMe ? 'Bạn' : senderDisplayName}
-                        </strong>{' '}
-                        <span className="text-slate-500">({msg.user_email})</span> •{' '}
-                        {new Date(msg.created_at).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
+                      {/* Sender Avatar */}
+                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm mt-1">
+                        {senderDisplayName.charAt(0).toUpperCase()}
+                      </div>
 
-                      <div
-                        className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl shadow-md space-y-2 ${
-                          isMe
-                            ? 'bg-indigo-600 text-white rounded-br-none'
-                            : 'bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none'
-                        }`}
-                      >
-                        {/* Attached Image */}
-                        {msg.file_url && msg.file_type === 'image' && (
-                          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={msg.file_url}
-                              alt="Đính kèm"
-                              className="max-h-64 max-w-full object-cover rounded-xl hover:scale-105 transition duration-300"
-                              loading="lazy"
-                            />
-                          </div>
+                      <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[75%]`}>
+                        {/* Sender Name */}
+                        {!isMe && (
+                          <span className="text-[11px] font-semibold text-slate-500 px-1 mb-0.5">
+                            {senderDisplayName}
+                          </span>
                         )}
 
-                        {/* Attached File */}
-                        {msg.file_url && msg.file_type === 'file' && (
-                          <a
-                            href={msg.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-3 p-2.5 bg-black/20 rounded-xl hover:bg-black/30 transition border border-white/10"
+                        {/* Main Message Bubble */}
+                        <div className="relative group/bubble">
+                          <div
+                            className={`p-3 rounded-2xl shadow-sm space-y-2 ${
+                              isMe
+                                ? 'bg-[#e5efff] text-slate-900 rounded-tr-none border border-blue-200/60'
+                                : 'bg-white text-slate-900 rounded-tl-none border border-slate-200/80'
+                            }`}
                           >
-                            <FileText className="w-6 h-6 text-indigo-300 shrink-0" />
-                            <div className="flex-1 min-w-0 text-xs">
-                              <p className="font-medium truncate text-white">Tải về file đính kèm</p>
-                              <p className="text-[10px] opacity-75">Bấm để mở / download</p>
-                            </div>
-                            <Download className="w-4 h-4 shrink-0 opacity-80" />
-                          </a>
-                        )}
+                            {/* Reply Quote Block */}
+                            {msg.reply_to && (
+                              <div className="p-2 bg-slate-100/90 rounded-lg border-l-4 border-blue-600 text-xs space-y-0.5 mb-1">
+                                <p className="font-bold text-blue-600 text-[11px]">
+                                  {msg.reply_to.user_name}
+                                </p>
+                                <p className="text-slate-600 line-clamp-2 text-[11px]">
+                                  {msg.reply_to.content}
+                                </p>
+                              </div>
+                            )}
 
-                        {/* Text Content */}
-                        {msg.content && (
-                          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                            {msg.content}
-                          </p>
-                        )}
+                            {/* Attached Image */}
+                            {msg.file_url && msg.file_type === 'image' && (
+                              <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={msg.file_url}
+                                  alt="Đính kèm"
+                                  className="max-h-64 max-w-full object-cover rounded-xl hover:scale-105 transition duration-300"
+                                  loading="lazy"
+                                />
+                              </div>
+                            )}
+
+                            {/* Attached File */}
+                            {msg.file_url && msg.file_type === 'file' && (
+                              <a
+                                href={msg.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 p-2 bg-slate-100 rounded-xl hover:bg-slate-200 transition border border-slate-300"
+                              >
+                                <FileText className="w-6 h-6 text-blue-600 shrink-0" />
+                                <div className="flex-1 min-w-0 text-xs">
+                                  <p className="font-medium truncate text-slate-800">
+                                    Tải về file đính kèm
+                                  </p>
+                                  <p className="text-[10px] text-slate-500">Bấm để mở / download</p>
+                                </div>
+                                <Download className="w-4 h-4 shrink-0 text-slate-600" />
+                              </a>
+                            )}
+
+                            {/* Text Content */}
+                            {msg.content && (
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                {renderMessageContent(msg.content)}
+                              </p>
+                            )}
+
+                            {/* Timestamp */}
+                            <p className="text-[10px] text-slate-400 text-right">
+                              {new Date(msg.created_at).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+
+                          {/* Hover Floating Actions (Reply & Reactions Bar) */}
+                          <div
+                            className={`absolute top-0 -translate-y-1/2 hidden group-hover/bubble:flex items-center bg-white border border-slate-200 rounded-full shadow-lg px-2 py-1 gap-1.5 z-10 ${
+                              isMe ? 'right-0' : 'left-0'
+                            }`}
+                          >
+                            {REACTION_EMOJIS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                onClick={() => handleAddReaction(msg.id, emoji)}
+                                className="hover:scale-125 transition text-sm"
+                                title="Thả cảm xúc"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                            <span className="w-px h-4 bg-slate-200 mx-0.5"></span>
+                            <button
+                              onClick={() => setReplyTarget(msg)}
+                              className="text-slate-500 hover:text-blue-600 transition p-0.5"
+                              title="Trả lời tin nhắn này"
+                            >
+                              <CornerUpLeft className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Render Reactions Badges Below Bubble */}
+                          {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                            <div
+                              className={`flex items-center gap-1 mt-1 ${
+                                isMe ? 'justify-end' : 'justify-start'
+                              }`}
+                            >
+                              {Object.entries(msg.reactions).map(([emoji, usersList]) => {
+                                if (!usersList || usersList.length === 0) return null;
+                                return (
+                                  <span
+                                    key={emoji}
+                                    className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-full text-[11px] shadow-xs flex items-center gap-1 text-slate-600"
+                                  >
+                                    <span>{emoji}</span>
+                                    <span className="font-bold">{usersList.length}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
                 })
               )}
               <div ref={messagesEndRef} />
-            </main>
+            </div>
 
-            {/* Selected Attachment Preview */}
-            {selectedFile && (
-              <div className="px-6 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {fileType === 'image' && filePreview ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={filePreview}
-                      alt="Preview"
-                      className="w-12 h-12 object-cover rounded-lg border border-slate-700"
-                    />
-                  ) : (
-                    <div className="p-2.5 bg-slate-800 rounded-lg text-indigo-400 border border-slate-700">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                  )}
-                  <div className="text-xs">
-                    <p className="font-medium text-slate-200 max-w-[200px] sm:max-w-[300px] truncate">
-                      {selectedFile.name}
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      {(selectedFile.size / 1024).toFixed(1)} KB
-                    </p>
+            {/* Quoted Message Target Preview Bar */}
+            {replyTarget && (
+              <div className="px-4 py-2 bg-blue-50 border-t border-blue-200 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 truncate min-w-0">
+                  <CornerUpLeft className="w-4 h-4 text-blue-600 shrink-0" />
+                  <div className="truncate">
+                    <span className="font-bold text-blue-900">
+                      Trả lời {replyTarget.user_name || replyTarget.user_email}:
+                    </span>{' '}
+                    <span className="text-slate-600 italic truncate">{replyTarget.content}</span>
                   </div>
                 </div>
-
                 <button
-                  onClick={handleClearFile}
-                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                  onClick={() => setReplyTarget(null)}
+                  className="p-1 text-slate-400 hover:text-slate-700 rounded-full"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             )}
 
-            {/* Emoji Picker Popover */}
-            {showEmoji && (
-              <div className="px-6 py-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 overflow-x-auto">
-                <span className="text-xs text-slate-400 shrink-0 font-medium">Emoji nhanh:</span>
-                {COMMON_EMOJIS.map((emoji) => (
+            {/* Mention Suggestion Popup */}
+            {showMentionPopup && activeRoom?.allowed_emails && (
+              <div className="mx-4 my-1 p-2 bg-white border border-slate-200 rounded-xl shadow-xl space-y-1 max-h-40 overflow-y-auto">
+                <p className="text-[10px] font-bold text-slate-400 px-2 uppercase">Gợi ý nhắc tên (@):</p>
+                {activeRoom.allowed_emails.map((emailStr) => (
                   <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => addEmoji(emoji)}
-                    className="text-xl p-1.5 hover:bg-slate-800 rounded-lg transition shrink-0 hover:scale-125"
+                    key={emailStr}
+                    onClick={() => handleSelectMention(emailStr.split('@')[0])}
+                    className="w-full text-left px-2 py-1.5 hover:bg-blue-50 rounded-lg text-xs text-slate-700 flex items-center gap-2"
                   >
-                    {emoji}
+                    <AtSign className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{emailStr}</span>
                   </button>
                 ))}
               </div>
             )}
 
-            {/* Input Area */}
-            <footer className="p-4 bg-slate-900 border-t border-slate-800">
-              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                {/* File Upload Hidden Input */}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  accept="image/*,.pdf,.doc,.docx,.zip,.txt"
-                />
-
+            {/* Chat Input Area Toolbar & Form */}
+            <footer className="bg-white border-t border-slate-200 p-3 space-y-2">
+              {/* Action Bar Tools Icons */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-1">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    className="hidden"
+                    accept="image/*,.pdf,.doc,.docx,.zip,.txt"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowEmoji((prev) => !prev)}
+                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                    title="Chọn Sticker / Emoji"
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-xl transition"
-                    title="Đính kèm file hoặc hình ảnh"
+                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                    title="Gửi hình ảnh"
+                  >
+                    <ImageIcon className="w-5 h-5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                    title="Đính kèm file"
                   >
                     <Paperclip className="w-5 h-5" />
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => setShowEmoji((prev) => !prev)}
-                    className={`p-2.5 rounded-xl transition ${
-                      showEmoji
-                        ? 'text-indigo-400 bg-indigo-600/20'
-                        : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800'
-                    }`}
-                    title="Chọn Emoji"
+                    onClick={() => setInputText((prev) => prev + '@')}
+                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition font-bold"
+                    title="Nhắc tên (@)"
                   >
-                    <Smile className="w-5 h-5" />
+                    <AtSign className="w-5 h-5" />
                   </button>
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSendLike}
+                    className="p-1.5 text-amber-500 hover:bg-amber-50 rounded-lg transition"
+                    title="Gửi Like 👍"
+                  >
+                    <ThumbsUp className="w-5 h-5 fill-current" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Text Input Form */}
+              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
                 <input
                   type="text"
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  placeholder={`Gửi tin nhắn vào ${activeRoom.name}...`}
-                  className="flex-1 px-4 py-2.5 bg-slate-800/90 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  onChange={handleInputChange}
+                  placeholder={`Nhập @, tin nhắn tới ${activeRoom.name}...`}
+                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
                 />
 
                 <button
                   type="submit"
                   disabled={sending || (!inputText.trim() && !selectedFile)}
-                  className="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+                  className="p-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow-md transition disabled:opacity-40 flex items-center justify-center shrink-0"
                 >
-                  {sending ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
+                  {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                 </button>
               </form>
             </footer>
           </>
         ) : (
-          /* Empty state when user is not in any room */
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-950">
-            <div className="p-4 bg-indigo-600/10 text-indigo-400 rounded-2xl border border-indigo-500/20 mb-4">
-              <MessageSquare className="w-12 h-12 stroke-[1.5]" />
-            </div>
-            <h2 className="text-xl font-bold text-white mb-2">Chưa chọn phòng chat nào</h2>
-            <p className="text-xs text-slate-400 max-w-md leading-relaxed mb-6">
-              Bạn chưa chọn phòng chat hoặc chưa được Trưởng nhóm thêm vào nhóm nào. Bạn có thể tự tạo phòng chat mới bằng nút bên dưới!
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#f4f5f7]">
+            <MessageSquare className="w-16 h-16 text-slate-300 stroke-[1.5] mb-3" />
+            <h3 className="text-lg font-bold text-slate-700 mb-1">Chào mừng tới Fica Chat</h3>
+            <p className="text-xs text-slate-500 max-w-sm">
+              Hãy chọn một cuộc trò chuyện từ danh sách bên trái hoặc tạo nhóm mới để bắt đầu.
             </p>
-            <button
-              onClick={() => setShowCreateRoomModal(true)}
-              className="py-3 px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tạo phòng chat mới ngay</span>
-            </button>
           </div>
         )}
-      </div>
+      </main>
+
+      {/* ========================================================================= */}
+      {/* COLUMN 4: RIGHT GROUP INFO PANEL (300px Width) */}
+      {/* ========================================================================= */}
+      {showRightPanel && activeRoom && (
+        <aside className="w-72 bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-y-auto font-sans z-10 hidden xl:flex">
+          {/* Header */}
+          <div className="p-4 border-b border-slate-100 text-center space-y-3">
+            <h3 className="font-bold text-sm text-slate-800">Thông tin nhóm</h3>
+
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-md">
+                {activeRoom.name.charAt(0).toUpperCase()}
+              </div>
+
+              <div className="flex items-center gap-1">
+                <h4 className="font-bold text-sm text-slate-900">{activeRoom.name}</h4>
+                <button className="p-1 text-slate-400 hover:text-blue-600">
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Quick Circle Action Buttons */}
+            <div className="grid grid-cols-4 gap-2 pt-2">
+              <button className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">
+                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <span className="text-[10px]">Tắt thông báo</span>
+              </button>
+
+              <button
+                onClick={() => handleTogglePinRoom(activeRoom.id)}
+                className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                  <Pin className="w-4 h-4" />
+                </div>
+                <span className="text-[10px]">{activeRoom.pinned ? 'Bỏ ghim' : 'Ghim'}</span>
+              </button>
+
+              <button
+                onClick={handleOpenMembersModal}
+                className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <span className="text-[10px]">Thêm TV</span>
+              </button>
+
+              <button
+                onClick={handleOpenMembersModal}
+                className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                  <Settings className="w-4 h-4" />
+                </div>
+                <span className="text-[10px]">Quản lý</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Members List Collapsible Section */}
+          <div className="p-4 border-b border-slate-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span>Thành viên nhóm ({(activeRoom.allowed_emails || []).length})</span>
+              </h5>
+              <button
+                onClick={handleOpenMembersModal}
+                className="text-[11px] font-semibold text-blue-600 hover:underline"
+              >
+                Xem tất cả
+              </button>
+            </div>
+
+            {/* Preview First Few Members */}
+            <div className="space-y-2">
+              {(activeRoom.allowed_emails || []).slice(0, 4).map((emailStr, idx) => {
+                const isOwner = emailStr.toLowerCase() === activeRoom.created_by.toLowerCase();
+                const isVice = (activeRoom.vice_admins || []).some(
+                  (v) => v.toLowerCase() === emailStr.toLowerCase()
+                );
+
+                return (
+                  <div key={idx} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+                        {emailStr.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-slate-700 truncate">{emailStr}</span>
+                    </div>
+
+                    {isOwner && (
+                      <span title="Trưởng nhóm">
+                        <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      </span>
+                    )}
+                    {isVice && !isOwner && (
+                      <span title="Phó nhóm">
+                        <Award className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Group News & Attachments Collapsible Section */}
+          <div className="p-4 border-b border-slate-100 space-y-3">
+            <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>Ảnh/Video & File đã gửi</span>
+            </h5>
+            <p className="text-[11px] text-slate-400 italic">Chưa có file phương tiện nào.</p>
+          </div>
+        </aside>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODALS */}
+      {/* ========================================================================= */}
 
       {/* Delete Room Confirmation Modal */}
       {showDeleteRoomModal && activeRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative border border-slate-200">
             <button
               onClick={() => setShowDeleteRoomModal(false)}
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 mb-4 text-red-400">
-              <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/30">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-bold text-white text-lg">Xác nhận giải tán nhóm</h3>
-                <p className="text-xs text-slate-400">Hành động dành riêng cho Trưởng nhóm</p>
-              </div>
+            <div className="flex items-center gap-3 mb-4 text-red-600">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="font-bold text-slate-900 text-lg">Xác nhận giải tán nhóm</h3>
             </div>
 
-            <p className="text-sm text-slate-300 leading-relaxed mb-6">
-              Bạn có chắc chắn muốn giải tán <strong className="text-white">{activeRoom.name}</strong>? Tất cả tin nhắn và danh sách thành viên sẽ bị xóa hoàn toàn.
+            <p className="text-xs text-slate-600 leading-relaxed mb-6">
+              Bạn có chắc chắn muốn giải tán <strong className="text-slate-900">{activeRoom.name}</strong>? Tất cả tin nhắn và dữ liệu nhóm sẽ bị xóa hoàn toàn.
             </p>
 
             <div className="flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setShowDeleteRoomModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
-                Hủy bỏ
+                Hủy
               </button>
               <button
                 type="button"
                 onClick={handleDeleteRoom}
                 disabled={deleteRoomLoading}
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-red-600/30 transition disabled:opacity-50 flex items-center gap-2"
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs shadow-md transition disabled:opacity-50 flex items-center gap-2"
               >
-                {deleteRoomLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4" />
-                    <span>Giải tán nhóm này</span>
-                  </>
-                )}
+                {deleteRoomLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Giải tán nhóm</span>}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Profile / Display Name Modal */}
-      {showProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
-            <button
-              onClick={() => setShowProfileModal(false)}
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-                <UserCheck2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-bold text-white text-lg">Đổi Tên hiển thị</h3>
-                <p className="text-xs text-slate-400">Đặt tên hiển thị thay cho email dài ngoẵng</p>
-              </div>
-            </div>
-
-            {profileSuccess && (
-              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{profileSuccess}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleUpdateProfile} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
-                  Email tài khoản
-                </label>
-                <input
-                  type="text"
-                  disabled
-                  value={user?.email || ''}
-                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-400 text-sm cursor-not-allowed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
-                  Họ và tên / Tên hiển thị mới
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editNameInput}
-                  onChange={(e) => setEditNameInput(e.target.value)}
-                  placeholder="Ví dụ: Nguyễn Văn A, Sếp Hùng..."
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowProfileModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={profileLoading}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition disabled:opacity-50 flex items-center gap-2"
-                >
-                  {profileLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <span>Lưu tên hiển thị</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Member Management & Vice Admin Modal (Chuẩn Zalo) */}
+      {/* Member Management & Vice Admin Modal */}
       {showMembersModal && activeRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto font-sans">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg bg-white p-6 rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto border border-slate-200">
             <button
               onClick={() => setShowMembersModal(false)}
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+              <div className="p-2.5 bg-blue-100 text-blue-600 rounded-xl">
                 <Users className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-lg">Quản lý thành viên</h3>
-                <p className="text-xs text-slate-400">{activeRoom.name}</p>
+                <h3 className="font-bold text-slate-900 text-lg">Quản lý thành viên</h3>
+                <p className="text-xs text-slate-500">{activeRoom.name}</p>
               </div>
-            </div>
-
-            {/* Role Banner Explanation */}
-            <div className="mb-4 p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-xs text-indigo-300 flex items-center gap-2">
-              <Crown className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Thêm thành viên mới vào nhóm hoặc Bổ nhiệm Phó nhóm bất kỳ lúc nào.</span>
             </div>
 
             {/* Add Member Input Form */}
@@ -1355,21 +1650,21 @@ export default function ChatPage() {
                 value={newMemberEmail}
                 onChange={(e) => setNewMemberEmail(e.target.value)}
                 placeholder="Nhập email nhân viên muốn thêm..."
-                className="flex-1 px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex-1 px-3.5 py-2 bg-slate-100 border border-slate-300 rounded-xl text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button
                 type="submit"
                 disabled={memberActionLoading}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-md shadow-indigo-600/20"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-md"
               >
                 <UserPlus className="w-4 h-4" />
                 <span>Thêm</span>
               </button>
             </form>
 
-            {/* Members List with Vice Admin Appointment Controls */}
+            {/* Members List */}
             <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                 Danh sách thành viên ({roomMembers.length})
               </p>
 
@@ -1389,25 +1684,25 @@ export default function ChatPage() {
                 return (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-3 bg-slate-800/90 rounded-xl border border-slate-700/60 text-xs gap-3"
+                    className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs gap-3"
                   >
                     <div className="flex items-center gap-2 truncate min-w-0 flex-1">
-                      <User className="w-4 h-4 text-indigo-400 shrink-0" />
-                      <span className="text-slate-200 font-semibold truncate">
-                        {member.user_email}
-                      </span>
+                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                        {member.user_email.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-slate-800 font-semibold truncate">{member.user_email}</span>
 
                       {/* Badges */}
                       {isOwner && (
-                        <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold shrink-0">
-                          <Crown className="w-3 h-3 text-amber-400" />
+                        <span className="flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-full font-bold shrink-0">
+                          <Crown className="w-3 h-3 text-amber-600" />
                           Trưởng nhóm
                         </span>
                       )}
 
                       {isVice && !isOwner && (
-                        <span className="flex items-center gap-1 text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-full font-bold shrink-0">
-                          <Award className="w-3 h-3 text-sky-400" />
+                        <span className="flex items-center gap-1 text-[10px] bg-sky-100 text-sky-800 border border-sky-300 px-2 py-0.5 rounded-full font-bold shrink-0">
+                          <Award className="w-3 h-3 text-sky-600" />
                           Phó nhóm
                         </span>
                       )}
@@ -1416,7 +1711,6 @@ export default function ChatPage() {
                     {/* Action Controls for Other Members */}
                     {!isTargetMe && (
                       <div className="flex items-center gap-2 shrink-0">
-                        {/* Vice Admin Toggle Button - ALWAYS visible for all other members! */}
                         <button
                           type="button"
                           onClick={() =>
@@ -1425,21 +1719,19 @@ export default function ChatPage() {
                               isVice ? 'vice_admin' : 'member'
                             )
                           }
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md ${
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
                             isVice
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
-                              : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'
+                              : 'bg-blue-600 hover:bg-blue-500 text-white'
                           }`}
-                          title={isVice ? 'Hủy quyền Phó nhóm' : 'Bổ nhiệm Phó nhóm'}
                         >
                           <Award className="w-3.5 h-3.5" />
                           <span>{isVice ? 'Hủy Phó nhóm' : 'Bổ nhiệm Phó nhóm'}</span>
                         </button>
 
-                        {/* Remove Member Button */}
                         <button
                           onClick={() => handleRemoveMember(member.user_email)}
-                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700/80 rounded-lg transition"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-200 rounded-lg transition"
                           title="Mời ra khỏi nhóm"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1456,37 +1748,37 @@ export default function ChatPage() {
 
       {/* Create New Room Modal */}
       {showCreateRoomModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative border border-slate-200">
             <button
               onClick={() => setShowCreateRoomModal(false)}
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="flex items-center gap-3 mb-5">
-              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+              <div className="p-2.5 bg-blue-100 text-blue-600 rounded-xl">
                 <Plus className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-lg">Tạo phòng chat mới</h3>
-                <p className="text-xs text-slate-400">Bạn sẽ là Trưởng nhóm của phòng chat này</p>
+                <h3 className="font-bold text-slate-900 text-lg">Tạo nhóm chat mới</h3>
+                <p className="text-xs text-slate-500">Bạn sẽ là Trưởng nhóm của nhóm này</p>
               </div>
             </div>
 
             <form onSubmit={handleCreateRoom} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
-                  Tên phòng chat / Nhóm
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                  Tên nhóm chat
                 </label>
                 <input
                   type="text"
                   required
                   value={newRoomName}
                   onChange={(e) => setNewRoomName(e.target.value)}
-                  placeholder="Ví dụ: Team Dự Án A, Nhóm Thiết Kế..."
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  placeholder="Ví dụ: HOLDING SHK - KẾ TOÁN, Team Thiết Kế..."
+                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
               </div>
 
@@ -1494,16 +1786,16 @@ export default function ChatPage() {
                 <button
                   type="button"
                   onClick={() => setShowCreateRoomModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition flex items-center gap-2"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Tạo phòng ngay</span>
+                  <span>Tạo nhóm ngay</span>
                 </button>
               </div>
             </form>
@@ -1513,33 +1805,33 @@ export default function ChatPage() {
 
       {/* Change Password Modal */}
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative border border-slate-200">
             <button
               onClick={() => setShowPasswordModal(false)}
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition"
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="flex items-center gap-3 mb-5">
-              <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+              <div className="p-2.5 bg-blue-100 text-blue-600 rounded-xl">
                 <Key className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-lg">Thay đổi mật khẩu</h3>
-                <p className="text-xs text-slate-400">Cập nhật mật khẩu mới cho tài khoản</p>
+                <h3 className="font-bold text-slate-900 text-lg">Thay đổi mật khẩu</h3>
+                <p className="text-xs text-slate-500">Cập nhật mật khẩu mới cho tài khoản</p>
               </div>
             </div>
 
             {passwordError && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
                 {passwordError}
               </div>
             )}
 
             {passwordSuccess && (
-              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-600 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{passwordSuccess}</span>
               </div>
@@ -1547,7 +1839,7 @@ export default function ChatPage() {
 
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
                   Mật khẩu mới
                 </label>
                 <input
@@ -1556,12 +1848,12 @@ export default function ChatPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
                   Nhập lại mật khẩu mới
                 </label>
                 <input
@@ -1570,7 +1862,7 @@ export default function ChatPage() {
                   value={confirmNewPassword}
                   onChange={(e) => setConfirmNewPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -1578,20 +1870,16 @@ export default function ChatPage() {
                 <button
                   type="button"
                   onClick={() => setShowPasswordModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={passwordLoading}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs shadow-lg shadow-indigo-600/30 transition disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  {passwordLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <span>Cập nhật mật khẩu</span>
-                  )}
+                  {passwordLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Cập nhật mật khẩu</span>}
                 </button>
               </div>
             </form>
