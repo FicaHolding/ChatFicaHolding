@@ -3,6 +3,7 @@ export interface Message {
   user_id: string;
   user_email: string;
   user_name?: string | null;
+  user_avatar?: string | null;
   content: string;
   file_url?: string | null;
   file_type?: string | null; // 'image' | 'file'
@@ -24,13 +25,13 @@ export interface ChatRoom {
   vice_admins?: string[]; // Danh sách Email Phó nhóm
   allowed_emails?: string[]; // Danh sách Email thành viên trong nhóm
   pinned?: boolean;
-  avatar_color?: string;
+  avatar_url?: string;
 }
 
 export interface RoomMember {
   id?: string;
   room_id: string;
   user_email: string;
-  role: 'owner' | 'vice_admin' | 'member'; // 'owner': Trưởng nhóm, 'vice_admin': Phó nhóm, 'member': Thành viên
+  role: 'owner' | 'vice_admin' | 'member';
   created_at?: string;
 }
