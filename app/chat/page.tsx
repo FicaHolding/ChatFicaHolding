@@ -50,7 +50,12 @@ import {
   UserCheck,
 } from 'lucide-react';
 
-const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
+const COMMON_EMOJIS = [
+  '😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', 
+  '😎', '🚀', '✨', '💯', '🤣', '😭', '😮', '😡', 
+  '🙏', '👏', '🥳', '🥰', '🤔', '💪', '🤝', '⭐', 
+  '❤️‍🔥', '👌', '🎯', '💡', '💬', '☕', '🎁', '🏆'
+];
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 const GLOBAL_SUPER_ADMIN = 'fica.holding@gmail.com';
 
@@ -1427,7 +1432,7 @@ export default function ChatPage() {
         {/* ========================================================================= */}
         {/* COLUMN 3: MAIN CHAT FEED WINDOW (Central Flex-1) */}
         {/* ========================================================================= */}
-        <main className="flex-1 flex flex-col h-full bg-[#f4f5f7] min-w-0 border-r border-slate-200">
+        <main className="flex-1 flex flex-col h-full bg-[#f4f5f7] min-w-0 border-r border-slate-200 relative">
           {activeRoom ? (
             <>
               {/* Top Bar Header */}
@@ -1730,6 +1735,37 @@ export default function ChatPage() {
                 </div>
               )}
 
+              {/* Emoji Picker Popup Panel (FIXED - Zalo Style) */}
+              {showEmoji && (
+                <div className="absolute bottom-20 left-4 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-30 w-80 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Biểu tượng cảm xúc (Emoji)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmoji(false)}
+                      className="p-1 text-slate-400 hover:text-slate-700 rounded-full"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-6 gap-1.5 max-h-48 overflow-y-auto p-1">
+                    {COMMON_EMOJIS.map((emoji, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => addEmoji(emoji)}
+                        className="w-9 h-9 text-2xl flex items-center justify-center hover:bg-blue-50 hover:scale-125 rounded-xl transition cursor-pointer"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Chat Input Area Toolbar & Form */}
               <footer className="bg-white border-t border-slate-200 p-3 space-y-2">
                 {/* Action Bar Tools Icons */}
@@ -1743,11 +1779,16 @@ export default function ChatPage() {
                       accept="image/*,.pdf,.doc,.docx,.zip,.txt"
                     />
 
+                    {/* Smile Emoji Button */}
                     <button
                       type="button"
                       onClick={() => setShowEmoji((prev) => !prev)}
-                      className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
-                      title="Chọn Sticker / Emoji"
+                      className={`p-1.5 rounded-lg transition ${
+                        showEmoji
+                          ? 'bg-blue-100 text-blue-600'
+                          : 'text-slate-500 hover:text-blue-600 hover:bg-slate-100'
+                      }`}
+                      title="Chọn Sticker / Emoji mặt cười"
                     >
                       <Smile className="w-5 h-5" />
                     </button>
@@ -1840,7 +1881,7 @@ export default function ChatPage() {
                     {activeRoom.name.charAt(0).toUpperCase()}
                   </div>
 
-                  {/* Group Name & Rename Button (Pencil Icon ✎ - FIX) */}
+                  {/* Group Name & Rename Button (Pencil Icon ✎) */}
                   <div className="flex items-center gap-1 justify-center">
                     <h4 className="font-bold text-sm text-slate-900">{activeRoom.name}</h4>
                     {!activeRoom.isDirect && (
@@ -2012,7 +2053,7 @@ export default function ChatPage() {
       {/* MODALS */}
       {/* ========================================================================= */}
 
-      {/* Rename Room Modal (FIX) */}
+      {/* Rename Room Modal */}
       {showRenameRoomModal && activeRoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative border border-slate-200">
