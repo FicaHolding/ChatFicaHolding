@@ -303,7 +303,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v110 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v120 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -316,13 +316,20 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v109
-      const keysToPurge = Array.from({ length: 110 }, (_, i) =>
+      // Purge all legacy cache keys up to v119
+      const keysToPurge = Array.from({ length: 120 }, (_, i) =>
         i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
       );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v110');
+      // Also purge all corrupt fica_msg_content_ keys from localStorage
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith('fica_msg_content_')) {
+          localStorage.removeItem(k);
+        }
+      });
+
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v120');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -369,7 +376,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v110', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v120', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -380,7 +387,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v110', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v120', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -465,45 +472,22 @@ export default function ChatPage() {
       deterministicId = getDeterministicDirectRoomId(room.allowed_emails[0], room.allowed_emails[1]);
     }
 
-    const checkMatch = (rId?: string | null): boolean => {
-      if (!rId) return false;
-      if (rId === room.id) return true;
-      if (deterministicId && rId === deterministicId) return true;
-      if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-        const e1 = room.allowed_emails[0].toLowerCase().trim();
-        const e2 = room.allowed_emails[1].toLowerCase().trim();
-        if (rId.includes(e1) && rId.includes(e2)) return true;
-      }
-      return false;
-    };
-
     // 1. Direct match on msg.room_id
-    if (msg.room_id && checkMatch(msg.room_id)) return true;
+    if (msg.room_id) {
+      if (msg.room_id === room.id) return true;
+      if (deterministicId && msg.room_id === deterministicId) return true;
+      return false;
+    }
 
     // 2. Check localStorage mapping by msg.id
     try {
       const localRoom = localStorage.getItem(`fica_msg_room_${msg.id}`);
-      if (localRoom && checkMatch(localRoom)) return true;
+      if (localRoom) {
+        if (localRoom === room.id || (deterministicId && localRoom === deterministicId)) return true;
+        return false;
+      }
     } catch {
       // Safe
-    }
-
-    // 3. Check localStorage content mapping
-    if (msg.content) {
-      try {
-        const contentKey = `fica_msg_content_${encodeURIComponent(msg.content.substring(0, 30))}`;
-        const localContentRoom = localStorage.getItem(contentKey);
-        if (localContentRoom && checkMatch(localContentRoom)) return true;
-      } catch {
-        // Safe
-      }
-    }
-
-    // 4. For 1-on-1 direct rooms fallback: ONLY match if msg.room_id explicitly matches checkMatch(msg.room_id)
-    if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
-      if (msg.room_id && checkMatch(msg.room_id)) {
-        return true;
-      }
     }
 
     return false;
@@ -1292,12 +1276,6 @@ export default function ChatPage() {
 
       try {
         localStorage.setItem(`fica_msg_room_${tempId}`, currentRoomId);
-        if (messageContent) {
-          localStorage.setItem(
-            `fica_msg_content_${encodeURIComponent(messageContent.substring(0, 30))}`,
-            currentRoomId
-          );
-        }
       } catch {
         // Ignore
       }
