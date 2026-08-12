@@ -301,7 +301,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v60 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v70 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -314,13 +314,13 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v59
-      const keysToPurge = Array.from({ length: 60 }, (_, i) =>
+      // Purge all legacy cache keys up to v69
+      const keysToPurge = Array.from({ length: 70 }, (_, i) =>
         i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
       );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v60');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v70');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -367,7 +367,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v60', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v70', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -378,7 +378,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v60', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v70', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -519,28 +519,7 @@ export default function ChatPage() {
     const resolvedName = getDisplayNameForEmail(targetEmail, friendName);
     const deterministicRoomId = getDeterministicDirectRoomId(myEmail, targetEmail);
 
-    // Check if direct room already exists
-    const existingDirect = rooms.find((r) => {
-      if (r.id === deterministicRoomId) return true;
-      if (!r.isDirect) return false;
-      const allowed = (r.allowed_emails || []).map((e) => e.toLowerCase());
-      return allowed.includes(myEmail.toLowerCase()) && allowed.includes(targetEmail);
-    });
-
-    if (existingDirect) {
-      // Ensure deterministic ID and name are synced
-      const updated = rooms.map((r) => (r.id === existingDirect.id ? { ...r, id: deterministicRoomId, name: resolvedName } : r));
-      updateRoomsState(updated);
-      setActiveRoom({ ...existingDirect, id: deterministicRoomId, name: resolvedName });
-      setActiveNavTab('chats');
-      setMobileView('chat');
-      setShowMembersModal(false);
-      setShowMobileSidebar(false);
-      return;
-    }
-
-    // Create new 1-on-1 Direct Chat Room with Deterministic Room ID
-    const newDirectRoom: ChatRoom = {
+    const cleanDirectRoom: ChatRoom = {
       id: deterministicRoomId,
       name: resolvedName,
       created_by: myEmail,
@@ -550,9 +529,19 @@ export default function ChatPage() {
       allowed_emails: [myEmail, targetEmail],
     };
 
-    const updatedRooms = [...rooms, newDirectRoom];
+    // Strip out any stale direct room with room ID or partner email mismatch
+    const otherRooms = rooms.filter((r) => {
+      if (r.id === deterministicRoomId) return false;
+      if (r.isDirect) {
+        const partner = getDirectChatPartnerEmail(r, myEmail);
+        if (partner.toLowerCase().trim() === targetEmail) return false;
+      }
+      return true;
+    });
+
+    const updatedRooms = [...otherRooms, cleanDirectRoom];
     updateRoomsState(updatedRooms);
-    setActiveRoom(newDirectRoom);
+    setActiveRoom(cleanDirectRoom);
     setActiveNavTab('chats');
     setMobileView('chat');
     setShowMembersModal(false);
