@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Message, ChatRoom, RoomMember } from '@/lib/types';
+import { Message, ChatRoom, RoomMember, Friend } from '@/lib/types';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import InstallPWA from '../components/InstallPWA';
 import {
@@ -47,7 +47,7 @@ import {
   Bell,
   Camera,
   Upload,
-  ShieldAlert,
+  UserCheck,
 } from 'lucide-react';
 
 const COMMON_EMOJIS = ['😊', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🙌', '😎', '🚀', '✨', '💯'];
@@ -63,6 +63,15 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+
+  // Left Nav Tab: 'chats' | 'contacts'
+  const [activeNavTab, setActiveNavTab] = useState<'chats' | 'contacts'>('chats');
+
+  // Friends & Contacts State
+  const [friendsList, setFriendsList] = useState<Friend[]>([]);
+  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [addFriendEmailInput, setAddFriendEmailInput] = useState('');
+  const [addFriendSuccess, setAddFriendSuccess] = useState<string | null>(null);
 
   // Search & Filter Tabs
   const [searchQuery, setSearchQuery] = useState('');
@@ -132,6 +141,25 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
+  // Load Friends list from localStorage
+  useEffect(() => {
+    try {
+      const savedFriends = localStorage.getItem('fica_friends_list_v2');
+      if (savedFriends) {
+        setFriendsList(JSON.parse(savedFriends));
+      } else {
+        const defaultFriends: Friend[] = [
+          { email: 'fica.holding@gmail.com', name: 'Fica Admin' },
+          { email: 'huytq.ktv@gmail.com', name: 'Trịnh Huy' },
+        ];
+        setFriendsList(defaultFriends);
+        localStorage.setItem('fica_friends_list_v2', JSON.stringify(defaultFriends));
+      }
+    } catch {
+      // Safe fallback
+    }
+  }, []);
+
   // Purge ALL stale room cache keys & initialize fresh clean rooms
   useEffect(() => {
     try {
@@ -146,10 +174,11 @@ export default function ChatPage() {
         'fica_chat_rooms_v5',
         'fica_chat_rooms_v6',
         'fica_chat_rooms_v7',
+        'fica_chat_rooms_v8',
       ];
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v9');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v10');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -195,7 +224,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v9', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v10', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -206,7 +235,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v9', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v10', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -245,6 +274,13 @@ export default function ChatPage() {
   const visibleRooms = rooms
     .filter((r) => canUserAccessRoom(r, user?.email))
     .filter((r) => r.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  // Filter friends list
+  const filteredFriends = friendsList.filter(
+    (f) =>
+      f.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      f.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Set default active room based on user access
   useEffect(() => {
@@ -286,6 +322,90 @@ export default function ChatPage() {
       return true;
     }
     return false;
+  };
+
+  // Start 1-on-1 Direct Chat with a friend (Zalo Direct Message)
+  const handleStartDirectChat = (friendEmail: string, friendName?: string) => {
+    if (!user) return;
+    const myEmail = user.email || '';
+    const targetEmail = friendEmail.toLowerCase().trim();
+
+    if (targetEmail === myEmail.toLowerCase()) {
+      alert('Bạn không thể tự chat riêng với chính mình!');
+      return;
+    }
+
+    // Check if direct room already exists
+    const existingDirect = rooms.find((r) => {
+      if (!r.isDirect) return false;
+      const allowed = (r.allowed_emails || []).map((e) => e.toLowerCase());
+      return allowed.includes(myEmail.toLowerCase()) && allowed.includes(targetEmail);
+    });
+
+    if (existingDirect) {
+      setActiveRoom(existingDirect);
+      setActiveNavTab('chats');
+      setShowMembersModal(false);
+      setShowMobileSidebar(false);
+      return;
+    }
+
+    // Create new 1-on-1 Direct Chat Room
+    const displayNameForRoom = friendName || targetEmail.split('@')[0];
+    const newDirectRoom: ChatRoom = {
+      id: `direct_${Date.now()}`,
+      name: `Chat với ${displayNameForRoom}`,
+      created_by: myEmail,
+      isPrivate: true,
+      isDirect: true,
+      direct_user_email: targetEmail,
+      allowed_emails: [myEmail, targetEmail],
+    };
+
+    const updatedRooms = [...rooms, newDirectRoom];
+    updateRoomsState(updatedRooms);
+    setActiveRoom(newDirectRoom);
+    setActiveNavTab('chats');
+    setShowMembersModal(false);
+    setShowMobileSidebar(false);
+  };
+
+  // Add Friend Handler
+  const handleAddFriend = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addFriendEmailInput.trim() || !user) return;
+
+    const emailToAdd = addFriendEmailInput.trim().toLowerCase();
+
+    if (emailToAdd === user.email?.toLowerCase()) {
+      alert('Bạn không thể kết bạn với chính mình!');
+      return;
+    }
+
+    if (friendsList.some((f) => f.email.toLowerCase() === emailToAdd)) {
+      alert('Email này đã có trong danh sách bạn bè!');
+      return;
+    }
+
+    const newFriendObj: Friend = {
+      email: emailToAdd,
+      name: emailToAdd.split('@')[0],
+    };
+
+    const updatedFriends = [...friendsList, newFriendObj];
+    setFriendsList(updatedFriends);
+    try {
+      localStorage.setItem('fica_friends_list_v2', JSON.stringify(updatedFriends));
+    } catch {
+      // Safe
+    }
+
+    setAddFriendSuccess(`Đã thêm ${emailToAdd} vào danh sách bạn bè thành công!`);
+    setAddFriendEmailInput('');
+    setTimeout(() => {
+      setShowAddFriendModal(false);
+      setAddFriendSuccess(null);
+    }, 1200);
   };
 
   // Initial load: User session & Fetch existing messages for activeRoom & Setup Realtime
@@ -979,19 +1099,28 @@ export default function ChatPage() {
               <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#001a33] rounded-full"></span>
             </button>
 
-            {/* Navigation Items */}
+            {/* Navigation Items (Tabs Switcher: Chat 💬 vs Danh Bạ 📇) */}
             <div className="flex flex-col items-center gap-4 w-full">
               <button
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-white bg-blue-600 shadow-lg shadow-blue-600/30 transition"
-                title="Tin nhắn"
+                onClick={() => setActiveNavTab('chats')}
+                className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+                  activeNavTab === 'chats'
+                    ? 'text-white bg-blue-600 shadow-lg shadow-blue-600/30'
+                    : 'text-blue-200/60 hover:text-white hover:bg-white/10'
+                }`}
+                title="Hội thoại tin nhắn"
               >
                 <MessageSquare className="w-6 h-6" />
               </button>
 
               <button
-                onClick={handleOpenMembersModal}
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-blue-200/60 hover:text-white hover:bg-white/10 transition"
-                title="Danh bạ / Thành viên"
+                onClick={() => setActiveNavTab('contacts')}
+                className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+                  activeNavTab === 'contacts'
+                    ? 'text-white bg-blue-600 shadow-lg shadow-blue-600/30'
+                    : 'text-blue-200/60 hover:text-white hover:bg-white/10'
+                }`}
+                title="Danh bạ bạn bè"
               >
                 <Contact2 className="w-6 h-6" />
               </button>
@@ -1037,14 +1166,14 @@ export default function ChatPage() {
         </nav>
 
         {/* ========================================================================= */}
-        {/* COLUMN 2: CHAT ROOMS LIST COLUMN (320px Width) */}
+        {/* COLUMN 2: CHAT ROOMS & FRIENDS CONTACTS COLUMN (320px Width) */}
         {/* ========================================================================= */}
         <aside
           className={`w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 transition-transform duration-300 md:static ${
             showMobileSidebar ? 'fixed inset-y-0 left-16 z-40 shadow-2xl' : 'hidden md:flex'
           }`}
         >
-          {/* Top Search Bar & Actions */}
+          {/* Top Search Bar & Actions (+👤 Thêm bạn & +👥 Tạo nhóm) */}
           <div className="p-3 border-b border-slate-100 flex items-center gap-2">
             <div className="flex-1 relative flex items-center">
               <Search className="w-4 h-4 text-slate-400 absolute left-3" />
@@ -1057,121 +1186,202 @@ export default function ChatPage() {
               />
             </div>
 
+            {/* Add Friend Button (+👤) */}
             <button
-              onClick={() => setShowCreateRoomModal(true)}
+              onClick={() => setShowAddFriendModal(true)}
               className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
-              title="Tạo nhóm mới"
+              title="Thêm bạn mới (+👤)"
             >
               <UserPlus className="w-5 h-5" />
             </button>
-          </div>
 
-          {/* Tab Filters: Tất cả | Chưa đọc */}
-          <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setFilterTab('all')}
-                className={`pb-1 border-b-2 transition ${
-                  filterTab === 'all'
-                    ? 'border-blue-600 text-blue-600 font-bold'
-                    : 'border-transparent hover:text-slate-800'
-                }`}
-              >
-                Tất cả
-              </button>
-              <button
-                onClick={() => setFilterTab('unread')}
-                className={`pb-1 border-b-2 transition ${
-                  filterTab === 'unread'
-                    ? 'border-blue-600 text-blue-600 font-bold'
-                    : 'border-transparent hover:text-slate-800'
-                }`}
-              >
-                Chưa đọc
-              </button>
-            </div>
-            <button className="text-slate-400 hover:text-slate-600 text-[11px] flex items-center gap-1">
-              <span>Phân loại</span>
-              <ChevronDown className="w-3 h-3" />
+            {/* Create Group Button (+👥) */}
+            <button
+              onClick={() => setShowCreateRoomModal(true)}
+              className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+              title="Tạo nhóm mới (+👥)"
+            >
+              <Users className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Chat Rooms Scrollable Feed */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
-            {visibleRooms.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400 space-y-2">
-                <p>Chưa có cuộc trò chuyện nào.</p>
-                <button
-                  onClick={() => setShowCreateRoomModal(true)}
-                  className="text-blue-600 font-semibold underline"
-                >
-                  + Tạo nhóm mới ngay
-                </button>
-              </div>
-            ) : (
-              visibleRooms.map((room) => {
-                const isActive = activeRoom && room.id === activeRoom.id;
-
-                return (
-                  <div
-                    key={room.id}
-                    onClick={() => {
-                      setActiveRoom(room);
-                      setShowMobileSidebar(false);
-                    }}
-                    className={`flex items-center gap-3 p-3 cursor-pointer transition relative group ${
-                      isActive
-                        ? 'bg-blue-50/80 border-l-4 border-blue-600'
-                        : 'hover:bg-slate-50 border-l-4 border-transparent'
+          {/* VIEW MODE 1: CHATS LIST (When activeNavTab === 'chats') */}
+          {activeNavTab === 'chats' ? (
+            <>
+              {/* Tab Filters: Tất cả | Chưa đọc */}
+              <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setFilterTab('all')}
+                    className={`pb-1 border-b-2 transition ${
+                      filterTab === 'all'
+                        ? 'border-blue-600 text-blue-600 font-bold'
+                        : 'border-transparent hover:text-slate-800'
                     }`}
                   >
-                    {/* Group Avatar */}
-                    <div className="relative shrink-0">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-                        {room.name.charAt(0).toUpperCase()}
-                      </div>
-                      {room.pinned && (
-                        <div className="absolute -top-1 -right-1 p-0.5 bg-slate-200 text-slate-600 rounded-full border border-white">
-                          <Pin className="w-2.5 h-2.5 fill-current" />
-                        </div>
-                      )}
-                    </div>
+                    Tất cả
+                  </button>
+                  <button
+                    onClick={() => setFilterTab('unread')}
+                    className={`pb-1 border-b-2 transition ${
+                      filterTab === 'unread'
+                        ? 'border-blue-600 text-blue-600 font-bold'
+                        : 'border-transparent hover:text-slate-800'
+                    }`}
+                  >
+                    Chưa đọc
+                  </button>
+                </div>
+                <button className="text-slate-400 hover:text-slate-600 text-[11px] flex items-center gap-1">
+                  <span>Phân loại</span>
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+              </div>
 
-                    {/* Room Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <h4
-                          className={`text-xs font-semibold truncate ${
-                            isActive ? 'text-blue-900 font-bold' : 'text-slate-800'
-                          }`}
-                        >
-                          {room.name}
-                        </h4>
-                        <span className="text-[10px] text-slate-400 shrink-0">10:45</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                        {room.allowed_emails && room.allowed_emails.length > 0
-                          ? `${room.allowed_emails.length} thành viên`
-                          : 'Bắt đầu cuộc trò chuyện...'}
-                      </p>
-                    </div>
-
-                    {/* Pin Room Action */}
+              {/* Chat Rooms Scrollable Feed */}
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+                {visibleRooms.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                    <p>Chưa có cuộc trò chuyện nào.</p>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTogglePinRoom(room.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600 transition"
-                      title={room.pinned ? 'Bỏ ghim' : 'Ghim hội thoại'}
+                      onClick={() => setShowCreateRoomModal(true)}
+                      className="text-blue-600 font-semibold underline"
                     >
-                      {room.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                      + Tạo nhóm mới ngay
                     </button>
                   </div>
-                );
-              })
-            )}
-          </div>
+                ) : (
+                  visibleRooms.map((room) => {
+                    const isActive = activeRoom && room.id === activeRoom.id;
+
+                    return (
+                      <div
+                        key={room.id}
+                        onClick={() => {
+                          setActiveRoom(room);
+                          setShowMobileSidebar(false);
+                        }}
+                        className={`flex items-center gap-3 p-3 cursor-pointer transition relative group ${
+                          isActive
+                            ? 'bg-blue-50/80 border-l-4 border-blue-600'
+                            : 'hover:bg-slate-50 border-l-4 border-transparent'
+                        }`}
+                      >
+                        {/* Group / Direct Avatar */}
+                        <div className="relative shrink-0">
+                          {room.isDirect ? (
+                            <div className="w-12 h-12 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
+                              {room.name.charAt(0).toUpperCase()}
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
+                              {room.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          {room.pinned && (
+                            <div className="absolute -top-1 -right-1 p-0.5 bg-slate-200 text-slate-600 rounded-full border border-white">
+                              <Pin className="w-2.5 h-2.5 fill-current" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Room Details */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <h4
+                              className={`text-xs font-semibold truncate ${
+                                isActive ? 'text-blue-900 font-bold' : 'text-slate-800'
+                              }`}
+                            >
+                              {room.name}
+                            </h4>
+                            <span className="text-[10px] text-slate-400 shrink-0">10:45</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                            {room.isDirect
+                              ? `Trò chuyện riêng 1-1`
+                              : room.allowed_emails && room.allowed_emails.length > 0
+                              ? `${room.allowed_emails.length} thành viên`
+                              : 'Bắt đầu cuộc trò chuyện...'}
+                          </p>
+                        </div>
+
+                        {/* Pin Room Action */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTogglePinRoom(room.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600 transition"
+                          title={room.pinned ? 'Bỏ ghim' : 'Ghim hội thoại'}
+                        >
+                          {room.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          ) : (
+            /* VIEW MODE 2: DANH BẠ BẠN BÈ (When activeNavTab === 'contacts') */
+            <div className="flex-1 flex flex-col overflow-hidden bg-white">
+              <div className="p-3 border-b border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Contact2 className="w-4 h-4 text-blue-600" />
+                  <span>Danh sách bạn bè ({filteredFriends.length})</span>
+                </span>
+                <button
+                  onClick={() => setShowAddFriendModal(true)}
+                  className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Thêm bạn</span>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-100 p-2 space-y-1">
+                {filteredFriends.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                    <p>Chưa có bạn bè nào.</p>
+                    <button
+                      onClick={() => setShowAddFriendModal(true)}
+                      className="text-blue-600 font-bold underline"
+                    >
+                      + Nhập email kết bạn ngay
+                    </button>
+                  </div>
+                ) : (
+                  filteredFriends.map((friend, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-2.5 hover:bg-blue-50/60 rounded-xl transition gap-2"
+                    >
+                      <div className="flex items-center gap-2.5 truncate min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-xs shrink-0">
+                          {friend.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="truncate min-w-0">
+                          <p className="text-xs font-bold text-slate-800 truncate">{friend.name}</p>
+                          <p className="text-[10px] text-slate-400 truncate">{friend.email}</p>
+                        </div>
+                      </div>
+
+                      {/* Quick 1-on-1 Chat Button */}
+                      <button
+                        onClick={() => handleStartDirectChat(friend.email, friend.name)}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 shadow-xs"
+                        title="Nhắn tin riêng 1-1"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Nhắn tin</span>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </aside>
 
         {/* ========================================================================= */}
@@ -1197,28 +1407,38 @@ export default function ChatPage() {
                   <div>
                     <h2 className="font-bold text-sm text-slate-800 flex items-center gap-2">
                       <span>{activeRoom.name}</span>
-                      {isRoomOwner(activeRoom, user?.email) && (
+                      {activeRoom.isDirect ? (
+                        <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold border border-blue-200">
+                          Chat riêng 1-1
+                        </span>
+                      ) : isRoomOwner(activeRoom, user?.email) ? (
                         <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold border border-amber-300">
                           👑 Trưởng nhóm
                         </span>
-                      )}
+                      ) : null}
                     </h2>
                     <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
                       <Users className="w-3 h-3 text-slate-400" />
-                      <span>{(activeRoom.allowed_emails || []).length} thành viên</span>
+                      <span>
+                        {activeRoom.isDirect
+                          ? `Hội thoại riêng`
+                          : `${(activeRoom.allowed_emails || []).length} thành viên`}
+                      </span>
                     </p>
                   </div>
                 </div>
 
                 {/* Action Tools Header Icons */}
                 <div className="flex items-center gap-1 sm:gap-2">
-                  <button
-                    className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
-                    title="Thêm thành viên"
-                    onClick={handleOpenMembersModal}
-                  >
-                    <UserPlus className="w-5 h-5" />
-                  </button>
+                  {!activeRoom.isDirect && (
+                    <button
+                      className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                      title="Thêm thành viên"
+                      onClick={handleOpenMembersModal}
+                    >
+                      <UserPlus className="w-5 h-5" />
+                    </button>
+                  )}
 
                   <button
                     className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
@@ -1242,7 +1462,7 @@ export default function ChatPage() {
                         ? 'bg-blue-100 text-blue-600'
                         : 'text-slate-600 hover:text-blue-600 hover:bg-slate-100'
                     }`}
-                    title="Thông tin nhóm"
+                    title="Thông tin hội thoại"
                   >
                     <PanelRight className="w-5 h-5" />
                   </button>
@@ -1557,21 +1777,23 @@ export default function ChatPage() {
               <MessageSquare className="w-16 h-16 text-slate-300 stroke-[1.5] mb-3" />
               <h3 className="text-lg font-bold text-slate-700 mb-1">Chào mừng tới Fica Chat</h3>
               <p className="text-xs text-slate-500 max-w-sm">
-                Hãy chọn một cuộc trò chuyện từ danh sách bên trái hoặc tạo nhóm mới để bắt đầu.
+                Hãy chọn một cuộc trò chuyện từ danh sách bên trái hoặc bấm +👤 để kết bạn nhắn tin riêng!
               </p>
             </div>
           )}
         </main>
 
         {/* ========================================================================= */}
-        {/* COLUMN 4: RIGHT GROUP INFO PANEL (300px Width) */}
+        {/* COLUMN 4: RIGHT GROUP / DIRECT INFO PANEL (300px Width) */}
         {/* ========================================================================= */}
         {showRightPanel && activeRoom && (
           <aside className="w-72 bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-y-auto font-sans z-10 hidden xl:flex justify-between">
             <div>
               {/* Header */}
               <div className="p-4 border-b border-slate-100 text-center space-y-3">
-                <h3 className="font-bold text-sm text-slate-800">Thông tin nhóm</h3>
+                <h3 className="font-bold text-sm text-slate-800">
+                  {activeRoom.isDirect ? 'Thông tin hội thoại' : 'Thông tin nhóm'}
+                </h3>
 
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-md">
@@ -1580,13 +1802,15 @@ export default function ChatPage() {
 
                   <div className="flex items-center gap-1">
                     <h4 className="font-bold text-sm text-slate-900">{activeRoom.name}</h4>
-                    <button className="p-1 text-slate-400 hover:text-blue-600">
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                    {!activeRoom.isDirect && (
+                      <button className="p-1 text-slate-400 hover:text-blue-600">
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* 4 Quick Circle Action Buttons (Zalo Style) */}
+                {/* 4 Quick Circle Action Buttons */}
                 <div className="grid grid-cols-4 gap-2 pt-2">
                   <button className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">
                     <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
@@ -1605,21 +1829,32 @@ export default function ChatPage() {
                     <span className="text-[10px]">{activeRoom.pinned ? 'Bỏ ghim' : 'Ghim'}</span>
                   </button>
 
-                  <button
-                    onClick={handleOpenMembersModal}
-                    className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
-                      <UserPlus className="w-4 h-4" />
-                    </div>
-                    <span className="text-[10px]">Thêm TV</span>
-                  </button>
+                  {!activeRoom.isDirect ? (
+                    <button
+                      onClick={handleOpenMembersModal}
+                      className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                        <UserPlus className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px]">Thêm TV</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowAddFriendModal(true)}
+                      className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                        <UserCheck className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px]">Bạn bè</span>
+                    </button>
+                  )}
 
-                  {/* Quản lý nhóm (Opens Group Settings & Disband Modal) */}
                   <button
                     onClick={() => setShowGroupSettingsModal(true)}
                     className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition"
-                    title="Mở Quản lý nhóm & Giải tán nhóm"
+                    title="Mở Quản lý"
                   >
                     <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-blue-100 flex items-center justify-center text-slate-700 hover:text-blue-600">
                       <Settings className="w-4 h-4" />
@@ -1629,53 +1864,67 @@ export default function ChatPage() {
                 </div>
               </div>
 
-              {/* Members List Collapsible Section */}
-              <div className="p-4 border-b border-slate-100 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-blue-600" />
-                    <span>Thành viên nhóm ({(activeRoom.allowed_emails || []).length})</span>
-                  </h5>
-                  <button
-                    onClick={handleOpenMembersModal}
-                    className="text-[11px] font-semibold text-blue-600 hover:underline"
-                  >
-                    Xem tất cả
-                  </button>
-                </div>
+              {/* Members List Collapsible Section (Group Only) */}
+              {!activeRoom.isDirect && (
+                <div className="p-4 border-b border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <span>Thành viên nhóm ({(activeRoom.allowed_emails || []).length})</span>
+                    </h5>
+                    <button
+                      onClick={handleOpenMembersModal}
+                      className="text-[11px] font-semibold text-blue-600 hover:underline"
+                    >
+                      Xem tất cả
+                    </button>
+                  </div>
 
-                {/* Preview First Few Members */}
-                <div className="space-y-2">
-                  {(activeRoom.allowed_emails || []).slice(0, 4).map((emailStr, idx) => {
-                    const isOwner = emailStr.toLowerCase() === activeRoom.created_by.toLowerCase();
-                    const isVice = (activeRoom.vice_admins || []).some(
-                      (v) => v.toLowerCase() === emailStr.toLowerCase()
-                    );
+                  <div className="space-y-2">
+                    {(activeRoom.allowed_emails || []).slice(0, 4).map((emailStr, idx) => {
+                      const isOwner = emailStr.toLowerCase() === activeRoom.created_by.toLowerCase();
+                      const isVice = (activeRoom.vice_admins || []).some(
+                        (v) => v.toLowerCase() === emailStr.toLowerCase()
+                      );
 
-                    return (
-                      <div key={idx} className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2 truncate">
-                          <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
-                            {emailStr.charAt(0).toUpperCase()}
+                      return (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2 truncate">
+                            <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+                              {emailStr.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-slate-700 truncate">{emailStr}</span>
                           </div>
-                          <span className="text-slate-700 truncate">{emailStr}</span>
-                        </div>
 
-                        {isOwner && (
-                          <span title="Trưởng nhóm">
-                            <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                          </span>
-                        )}
-                        {isVice && !isOwner && (
-                          <span title="Phó nhóm">
-                            <Award className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          <div className="flex items-center gap-1">
+                            {/* Direct Message Button */}
+                            {emailStr.toLowerCase() !== user?.email?.toLowerCase() && (
+                              <button
+                                onClick={() => handleStartDirectChat(emailStr)}
+                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                                title="Nhắn tin riêng 1-1"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {isOwner && (
+                              <span title="Trưởng nhóm">
+                                <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              </span>
+                            )}
+                            {isVice && !isOwner && (
+                              <span title="Phó nhóm">
+                                <Award className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Group News & Attachments Collapsible Section */}
               <div className="p-4 border-b border-slate-100 space-y-3">
@@ -1687,7 +1936,7 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* Bottom Disband / Leave Group Action Button (Zalo Style) */}
+            {/* Bottom Disband / Delete Action Button */}
             <div className="p-4 border-t border-slate-100 mt-auto">
               {isRoomOwner(activeRoom, user?.email) ? (
                 <button
@@ -1695,7 +1944,7 @@ export default function ChatPage() {
                   className="w-full py-2.5 px-3 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs"
                 >
                   <Trash2 className="w-4 h-4" />
-                  <span>Giải tán nhóm</span>
+                  <span>{activeRoom.isDirect ? 'Xóa cuộc trò chuyện' : 'Giải tán nhóm'}</span>
                 </button>
               ) : (
                 <button
@@ -1714,6 +1963,70 @@ export default function ChatPage() {
       {/* ========================================================================= */}
       {/* MODALS */}
       {/* ========================================================================= */}
+
+      {/* Add Friend Modal (+👤) */}
+      {showAddFriendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative border border-slate-200">
+            <button
+              onClick={() => setShowAddFriendModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-blue-100 text-blue-600 rounded-xl">
+                <UserPlus className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">Thêm bạn mới</h3>
+                <p className="text-xs text-slate-500">Nhập email đồng nghiệp/bạn bè để nhắn tin riêng 1-1</p>
+              </div>
+            </div>
+
+            {addFriendSuccess && (
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-600 flex items-center gap-2 font-bold">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{addFriendSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAddFriend} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                  Email bạn bè / đồng nghiệp
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={addFriendEmailInput}
+                  onChange={(e) => setAddFriendEmailInput(e.target.value)}
+                  placeholder="Ví dụ: fica.holding@gmail.com..."
+                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddFriendModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Kết bạn ngay</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Group Settings Modal (Zalo Style Quản lý nhóm) */}
       {showGroupSettingsModal && activeRoom && (
@@ -1773,11 +2086,10 @@ export default function ChatPage() {
                   >
                     <div className="flex items-center gap-2.5">
                       <Trash2 className="w-4 h-4 text-red-600" />
-                      <span>Giải tán nhóm (Xóa toàn bộ nhóm)</span>
+                      <span>
+                        {activeRoom.isDirect ? 'Xóa cuộc trò chuyện' : 'Giải tán nhóm (Xóa toàn bộ)'}
+                      </span>
                     </div>
-                    <span className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold">
-                      Trưởng nhóm
-                    </span>
                   </button>
                 ) : (
                   <button
@@ -1927,11 +2239,14 @@ export default function ChatPage() {
 
             <div className="flex items-center gap-3 mb-4 text-red-600">
               <AlertTriangle className="w-6 h-6" />
-              <h3 className="font-bold text-slate-900 text-lg">Xác nhận giải tán nhóm</h3>
+              <h3 className="font-bold text-slate-900 text-lg">
+                {activeRoom.isDirect ? 'Xác nhận xóa cuộc trò chuyện' : 'Xác nhận giải tán nhóm'}
+              </h3>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed mb-6">
-              Bạn có chắc chắn muốn giải tán <strong className="text-slate-900">{activeRoom.name}</strong>? Tất cả tin nhắn và dữ liệu nhóm sẽ bị xóa hoàn toàn.
+              Bạn có chắc chắn muốn {activeRoom.isDirect ? 'xóa cuộc trò chuyện' : 'giải tán'}{' '}
+              <strong className="text-slate-900">{activeRoom.name}</strong>? Tất cả dữ liệu sẽ bị xóa hoàn toàn.
             </p>
 
             <div className="flex items-center justify-end gap-3">
@@ -1948,7 +2263,7 @@ export default function ChatPage() {
                 disabled={deleteRoomLoading}
                 className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs shadow-md transition disabled:opacity-50 flex items-center gap-2"
               >
-                {deleteRoomLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Giải tán nhóm</span>}
+                {deleteRoomLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Xóa ngay</span>}
               </button>
             </div>
           </div>
@@ -2044,7 +2359,18 @@ export default function ChatPage() {
 
                     {/* Action Controls for Other Members */}
                     {!isTargetMe && (
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Direct 1-on-1 Chat Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleStartDirectChat(member.user_email)}
+                          className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                          title="Nhắn tin riêng 1-1"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Chat riêng</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() =>

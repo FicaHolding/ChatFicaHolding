@@ -20,8 +20,10 @@ export interface Message {
 export interface ChatRoom {
   id: string;
   name: string;
-  created_by: string; // Email Trưởng nhóm (Admin lập phòng)
+  created_by: string; // Email người tạo
   isPrivate?: boolean;
+  isDirect?: boolean; // true nếu là chat riêng 1-1
+  direct_user_email?: string; // Email người bạn trong chat riêng 1-1
   vice_admins?: string[]; // Danh sách Email Phó nhóm
   allowed_emails?: string[]; // Danh sách Email thành viên trong nhóm
   pinned?: boolean;
@@ -34,4 +36,10 @@ export interface RoomMember {
   user_email: string;
   role: 'owner' | 'vice_admin' | 'member';
   created_at?: string;
+}
+
+export interface Friend {
+  email: string;
+  name: string;
+  avatar_url?: string;
 }
