@@ -303,7 +303,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v90 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v100 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -316,13 +316,13 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v89
-      const keysToPurge = Array.from({ length: 90 }, (_, i) =>
+      // Purge all legacy cache keys up to v99
+      const keysToPurge = Array.from({ length: 100 }, (_, i) =>
         i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
       );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v90');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v100');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -369,7 +369,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v90', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v100', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -380,7 +380,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v90', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v100', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -1112,6 +1112,11 @@ export default function ChatPage() {
       // 3. Delete DB messages sent by partner email
       if (partnerEmail) {
         await supabase.from('messages').delete().eq('user_email', partnerEmail);
+      }
+
+      // 4. Delete orphan DB messages with room_id IS NULL sent by user
+      if (user?.email) {
+        await supabase.from('messages').delete().is('room_id', null).eq('user_email', user.email);
       }
 
       await supabase.from('room_members').delete().eq('room_id', roomToDelete.id);
