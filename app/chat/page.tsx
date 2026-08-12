@@ -297,7 +297,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v14 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v20 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -310,7 +310,7 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v13
+      // Purge all legacy cache keys up to v19
       const keysToPurge = [
         'fica_chat_rooms',
         'fica_chat_rooms_v2',
@@ -325,10 +325,16 @@ export default function ChatPage() {
         'fica_chat_rooms_v11',
         'fica_chat_rooms_v12',
         'fica_chat_rooms_v13',
+        'fica_chat_rooms_v14',
+        'fica_chat_rooms_v15',
+        'fica_chat_rooms_v16',
+        'fica_chat_rooms_v17',
+        'fica_chat_rooms_v18',
+        'fica_chat_rooms_v19',
       ];
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v14');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v20');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -375,7 +381,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v14', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v20', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -386,7 +392,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v14', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v20', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -654,17 +660,15 @@ export default function ChatPage() {
         // Extract real-time last message per room across all fetched messages
         const lastMap: { [rId: string]: { senderEmail?: string; content: string; time: string } } = {};
         (data as Message[]).forEach((m) => {
-          let targetRoomId = m.room_id;
-          if (!targetRoomId && m.user_email && currentUser.email) {
-            targetRoomId = getDeterministicDirectRoomId(m.user_email, currentUser.email);
-          }
-          if (targetRoomId) {
-            lastMap[targetRoomId] = {
-              senderEmail: m.user_email,
-              content: m.content || (m.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
-              time: m.created_at,
-            };
-          }
+          rooms.forEach((r) => {
+            if (isMessageInRoom(m, r)) {
+              lastMap[r.id] = {
+                senderEmail: m.user_email,
+                content: m.content || (m.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
+                time: m.created_at,
+              };
+            }
+          });
         });
         setRoomLastMessages((prev) => ({ ...prev, ...lastMap }));
 
