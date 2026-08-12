@@ -162,8 +162,10 @@ export default function ChatPage() {
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (messages.length > 0) {
+      scrollToBottom();
+    }
+  }, [messages.length]);
 
   // Deterministic 1-on-1 Direct Room ID Generator (identical for both users across all devices)
   const getDeterministicDirectRoomId = (email1: string, email2: string): string => {
@@ -615,6 +617,11 @@ export default function ChatPage() {
     }, 1200);
   };
 
+  const roomsRef = useRef(rooms);
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
+
   const [allMessages, setAllMessages] = useState<Message[]>([]);
 
   // Initial load: User session & Fetch existing messages for all rooms & Setup Global Realtime
@@ -667,7 +674,7 @@ export default function ChatPage() {
         // Extract real-time last message per room across all fetched messages
         const lastMap: { [rId: string]: { senderEmail?: string; content: string; time: string } } = {};
         fetchedMsgs.forEach((m) => {
-          rooms.forEach((r) => {
+          roomsRef.current.forEach((r) => {
             if (isMessageInRoom(m, r)) {
               lastMap[r.id] = {
                 senderEmail: m.user_email,
@@ -735,7 +742,7 @@ export default function ChatPage() {
             });
 
             // Update real-time room last message preview
-            rooms.forEach((r) => {
+            roomsRef.current.forEach((r) => {
               if (isMessageInRoom(newMessage, r)) {
                 setRoomLastMessages((prev) => ({
                   ...prev,
@@ -759,7 +766,7 @@ export default function ChatPage() {
         supabase.removeChannel(channel);
       }
     };
-  }, [router, supabase, rooms]);
+  }, [router, supabase]);
 
   // Dynamically filter activeRoom messages whenever activeRoom or allMessages update
   useEffect(() => {
