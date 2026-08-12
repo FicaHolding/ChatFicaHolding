@@ -84,7 +84,7 @@ export default function ChatPage() {
     'fica.holding@gmail.com': { name: 'Fica Holding' },
   });
 
-  // Real-time last message preview map per room ID
+  // Real-time last message preview map per room ID: { [roomId]: { senderEmail, content, time } }
   const [roomLastMessages, setRoomLastMessages] = useState<{
     [roomId: string]: { senderEmail?: string; content: string; time: string };
   }>({});
@@ -160,6 +160,12 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Deterministic 1-on-1 Direct Room ID Generator (identical for both users across all devices)
+  const getDeterministicDirectRoomId = (email1: string, email2: string): string => {
+    const sorted = [email1.toLowerCase().trim(), email2.toLowerCase().trim()].sort();
+    return `direct_${sorted[0]}_${sorted[1]}`;
+  };
 
   // Load Friends list from localStorage & sync to userProfiles
   useEffect(() => {
@@ -291,7 +297,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v13
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v14 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -302,7 +308,9 @@ export default function ChatPage() {
       const targetFriendName =
         userEmail.toLowerCase() === 'huytq.ktv@gmail.com' ? 'Fica Holding' : 'Trịnh Huy';
 
-      // Purge all legacy cache keys up to v12
+      const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
+
+      // Purge all legacy cache keys up to v13
       const keysToPurge = [
         'fica_chat_rooms',
         'fica_chat_rooms_v2',
@@ -316,10 +324,11 @@ export default function ChatPage() {
         'fica_chat_rooms_v10',
         'fica_chat_rooms_v11',
         'fica_chat_rooms_v12',
+        'fica_chat_rooms_v13',
       ];
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v13');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v14');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -335,7 +344,7 @@ export default function ChatPage() {
         }
       }
 
-      // Default initial rooms displaying BOTH Group chats & Direct 1-1 Friend chats
+      // Default initial rooms displaying BOTH Group chats & Direct 1-1 Friend chats with deterministic IDs
       const initialDefaultRooms: ChatRoom[] = [
         {
           id: 'room_ke_toan',
@@ -347,7 +356,7 @@ export default function ChatPage() {
           pinned: true,
         },
         {
-          id: `direct_holding_huy`,
+          id: directHoldingHuyId,
           name: targetFriendName,
           created_by: userEmail,
           isPrivate: true,
@@ -366,7 +375,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v13', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v14', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -377,7 +386,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v13', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v14', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -459,7 +468,12 @@ export default function ChatPage() {
 
     // 1. Direct match on msg.room_id
     if (msg.room_id) {
-      return msg.room_id === room.id;
+      if (msg.room_id === room.id) return true;
+      if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
+        const deterministicId = getDeterministicDirectRoomId(room.allowed_emails[0], room.allowed_emails[1]);
+        if (msg.room_id === deterministicId) return true;
+      }
+      return false;
     }
 
     // 2. Check localStorage mapping if legacy
@@ -471,20 +485,10 @@ export default function ChatPage() {
     }
 
     // 3. For 1-on-1 direct rooms, if msg.room_id is missing, ONLY match if sender & receiver match allowed_emails
-    // AND message was created around or after room creation, NOT old legacy test messages!
     if (room.isDirect && room.allowed_emails && room.allowed_emails.length >= 2) {
       const sender = (msg.user_email || '').toLowerCase().trim();
       const isSenderInRoom = room.allowed_emails.some((e) => e.toLowerCase().trim() === sender);
-      if (!isSenderInRoom) return false;
-
-      // Extract timestamp from room ID if format is direct_<timestamp>
-      const roomCreatedTimestamp = parseInt(room.id.replace('direct_', '')) || 0;
-      const msgTimestamp = new Date(msg.created_at).getTime();
-
-      // If room was created AFTER the old message was sent, do NOT leak old test message into this new room!
-      if (roomCreatedTimestamp > 0 && msgTimestamp < roomCreatedTimestamp - 60000) {
-        return false;
-      }
+      return isSenderInRoom;
     }
 
     return false;
@@ -503,7 +507,7 @@ export default function ChatPage() {
     return false;
   };
 
-  // Start 1-on-1 Direct Chat with a friend
+  // Start 1-on-1 Direct Chat with a friend (Deterministic Room ID)
   const handleStartDirectChat = (friendEmail: string, friendName?: string) => {
     if (!user) return;
     const myEmail = user.email || '';
@@ -515,25 +519,30 @@ export default function ChatPage() {
     }
 
     const resolvedName = getDisplayNameForEmail(targetEmail, friendName);
+    const deterministicRoomId = getDeterministicDirectRoomId(myEmail, targetEmail);
 
     // Check if direct room already exists
     const existingDirect = rooms.find((r) => {
+      if (r.id === deterministicRoomId) return true;
       if (!r.isDirect) return false;
       const allowed = (r.allowed_emails || []).map((e) => e.toLowerCase());
       return allowed.includes(myEmail.toLowerCase()) && allowed.includes(targetEmail);
     });
 
     if (existingDirect) {
-      setActiveRoom(existingDirect);
+      // Ensure deterministic ID and name are synced
+      const updated = rooms.map((r) => (r.id === existingDirect.id ? { ...r, id: deterministicRoomId, name: resolvedName } : r));
+      updateRoomsState(updated);
+      setActiveRoom({ ...existingDirect, id: deterministicRoomId, name: resolvedName });
       setActiveNavTab('chats');
       setShowMembersModal(false);
       setShowMobileSidebar(false);
       return;
     }
 
-    // Create new 1-on-1 Direct Chat Room
+    // Create new 1-on-1 Direct Chat Room with Deterministic Room ID
     const newDirectRoom: ChatRoom = {
-      id: `direct_${Date.now()}`,
+      id: deterministicRoomId,
       name: resolvedName,
       created_by: myEmail,
       isPrivate: true,
@@ -587,6 +596,9 @@ export default function ChatPage() {
       // Safe
     }
 
+    // Automatically create 1-on-1 Direct Room for new friend
+    handleStartDirectChat(emailToAdd, friendDisplayName);
+
     setAddFriendSuccess(`Đã thêm ${emailToAdd} vào danh sách bạn bè thành công!`);
     setAddFriendEmailInput('');
     setTimeout(() => {
@@ -632,26 +644,22 @@ export default function ChatPage() {
         }));
       }
 
-      if (!activeRoom) {
-        setMessages([]);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch messages for active room
+      // Fetch messages for ALL rooms to calculate real-time last message previews
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        const filtered = (data as Message[]).filter((m) => isMessageInRoom(m, activeRoom));
-
-        // Extract last message per room across all fetched messages
+        // Extract real-time last message per room across all fetched messages
         const lastMap: { [rId: string]: { senderEmail?: string; content: string; time: string } } = {};
         (data as Message[]).forEach((m) => {
-          if (m.room_id) {
-            lastMap[m.room_id] = {
+          let targetRoomId = m.room_id;
+          if (!targetRoomId && m.user_email && currentUser.email) {
+            targetRoomId = getDeterministicDirectRoomId(m.user_email, currentUser.email);
+          }
+          if (targetRoomId) {
+            lastMap[targetRoomId] = {
               senderEmail: m.user_email,
               content: m.content || (m.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
               time: m.created_at,
@@ -660,28 +668,37 @@ export default function ChatPage() {
         });
         setRoomLastMessages((prev) => ({ ...prev, ...lastMap }));
 
-        // Also extract sender avatars from message history
-        filtered.forEach((m) => {
-          if (m.user_email && (m.user_name || m.user_avatar)) {
-            const lower = m.user_email.toLowerCase().trim();
-            setUserProfiles((prev) => {
-              if (prev[lower]?.avatar_url === m.user_avatar && prev[lower]?.name === m.user_name)
-                return prev;
-              return {
-                ...prev,
-                [lower]: {
-                  name: m.user_name || prev[lower]?.name || lower.split('@')[0],
-                  avatar_url: m.user_avatar || prev[lower]?.avatar_url,
-                },
-              };
-            });
-          }
-        });
+        // Filter messages for currently active room
+        if (activeRoom) {
+          const filtered = (data as Message[]).filter((m) => isMessageInRoom(m, activeRoom));
 
-        setMessages(filtered);
+          // Also extract sender avatars from message history
+          filtered.forEach((m) => {
+            if (m.user_email && (m.user_name || m.user_avatar)) {
+              const lower = m.user_email.toLowerCase().trim();
+              setUserProfiles((prev) => {
+                if (prev[lower]?.avatar_url === m.user_avatar && prev[lower]?.name === m.user_name)
+                  return prev;
+                return {
+                  ...prev,
+                  [lower]: {
+                    name: m.user_name || prev[lower]?.name || lower.split('@')[0],
+                    avatar_url: m.user_avatar || prev[lower]?.avatar_url,
+                  },
+                };
+              });
+            }
+          });
+
+          setMessages(filtered);
+        }
+      } else if (activeRoom) {
+        setMessages([]);
       }
 
       setLoading(false);
+
+      if (!activeRoom) return;
 
       // Setup Realtime channel for active room
       channel = supabase
@@ -709,10 +726,11 @@ export default function ChatPage() {
             }
 
             // Update real-time last message preview
-            if (newMessage.room_id) {
+            const targetRoomId = newMessage.room_id || activeRoom.id;
+            if (targetRoomId) {
               setRoomLastMessages((prev) => ({
                 ...prev,
-                [newMessage.room_id!]: {
+                [targetRoomId]: {
                   senderEmail: newMessage.user_email,
                   content: newMessage.content || (newMessage.file_type === 'image' ? '[Hình ảnh]' : '[Tập tin]'),
                   time: newMessage.created_at,
@@ -1261,7 +1279,8 @@ export default function ChatPage() {
         })
         .select();
 
-      if (insertError && insertError.message.includes('schema cache')) {
+      if (insertError) {
+        // Retry including room_id
         const { data: retryData } = await supabase
           .from('messages')
           .insert({
@@ -1270,6 +1289,7 @@ export default function ChatPage() {
             content: messageContent,
             file_url: uploadedFileUrl,
             file_type: uploadedFileType,
+            room_id: currentRoomId,
           })
           .select();
         insertedData = retryData;
