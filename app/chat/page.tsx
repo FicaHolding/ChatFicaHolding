@@ -297,7 +297,7 @@ export default function ChatPage() {
     );
   };
 
-  // Purge ALL stale room cache keys & initialize fresh clean rooms v20 (Deterministic IDs)
+  // Purge ALL stale room cache keys & initialize fresh clean rooms v30 (Deterministic IDs)
   useEffect(() => {
     try {
       const userEmail = user?.email || GLOBAL_SUPER_ADMIN;
@@ -310,31 +310,13 @@ export default function ChatPage() {
 
       const directHoldingHuyId = getDeterministicDirectRoomId(userEmail, targetFriendEmail);
 
-      // Purge all legacy cache keys up to v19
-      const keysToPurge = [
-        'fica_chat_rooms',
-        'fica_chat_rooms_v2',
-        'fica_chat_rooms_v3',
-        'fica_chat_rooms_v4',
-        'fica_chat_rooms_v5',
-        'fica_chat_rooms_v6',
-        'fica_chat_rooms_v7',
-        'fica_chat_rooms_v8',
-        'fica_chat_rooms_v9',
-        'fica_chat_rooms_v10',
-        'fica_chat_rooms_v11',
-        'fica_chat_rooms_v12',
-        'fica_chat_rooms_v13',
-        'fica_chat_rooms_v14',
-        'fica_chat_rooms_v15',
-        'fica_chat_rooms_v16',
-        'fica_chat_rooms_v17',
-        'fica_chat_rooms_v18',
-        'fica_chat_rooms_v19',
-      ];
+      // Purge all legacy cache keys up to v29
+      const keysToPurge = Array.from({ length: 30 }, (_, i) =>
+        i === 0 ? 'fica_chat_rooms' : `fica_chat_rooms_v${i}`
+      );
       keysToPurge.forEach((k) => localStorage.removeItem(k));
 
-      const savedRooms = localStorage.getItem('fica_chat_rooms_v20');
+      const savedRooms = localStorage.getItem('fica_chat_rooms_v30');
       if (savedRooms) {
         const parsed = JSON.parse(savedRooms) as ChatRoom[];
         const cleanRooms = parsed
@@ -381,7 +363,7 @@ export default function ChatPage() {
       ];
 
       setRooms(initialDefaultRooms);
-      localStorage.setItem('fica_chat_rooms_v20', JSON.stringify(initialDefaultRooms));
+      localStorage.setItem('fica_chat_rooms_v30', JSON.stringify(initialDefaultRooms));
     } catch (e) {
       console.log('Error initializing clean rooms:', e);
     }
@@ -392,7 +374,7 @@ export default function ChatPage() {
     const cleanRooms = newRooms.filter((r) => r.id !== 'general');
     setRooms(cleanRooms);
     try {
-      localStorage.setItem('fica_chat_rooms_v20', JSON.stringify(cleanRooms));
+      localStorage.setItem('fica_chat_rooms_v30', JSON.stringify(cleanRooms));
     } catch (e) {
       console.log('Error saving rooms:', e);
     }
@@ -1561,7 +1543,7 @@ export default function ChatPage() {
                     const previewText = lastMsg
                       ? `${isLastMsgMe ? 'Bạn: ' : ''}${lastMsg.content}`
                       : isDirectChat
-                      ? 'Chưa có tin nhắn'
+                      ? null
                       : `${(room.allowed_emails || []).length} thành viên`;
 
                     const timeText = lastMsg
@@ -1614,9 +1596,11 @@ export default function ChatPage() {
                             {timeText && <span className="text-[10px] text-slate-400 shrink-0">{timeText}</span>}
                           </div>
 
-                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {previewText}
-                          </p>
+                          {previewText && (
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {previewText}
+                            </p>
+                          )}
                         </div>
 
                         {/* Pin Room Action */}
